@@ -22,6 +22,12 @@
       </a>
 
       <div class="nav-actions">
+        <!-- Direct Portal Link (Manual Fallback / Inspection) -->
+        <a id="top-portal-link" href="https://medverify-tpa-portal.vercel.app/" target="_blank" rel="noopener noreferrer" class="portal-pill-link" title="Open Deployed Mock TPA Portal">
+          <span>Open Mock TPA Portal</span>
+          <span>&nearr;</span>
+        </a>
+
         <!-- Interactive Simulation Quick-Trigger -->
         <button type="button" id="nav-sim-btn" class="circle-btn" title="Preview Confirmed Portal Scenarios (0 Credits)" aria-label="Preview Simulated Workflow">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -68,8 +74,8 @@
       <!-- Clearly Labeled Simulated Demonstration Bar (Only visible in Simulated Mode) -->
       <div id="sim-banner" class="sim-disclaimer-banner" role="region" aria-label="Simulation Notice">
         <div>
-          <strong>SIMULATED DEMONSTRATION MODE (0 TINYFISH CREDITS):</strong>
-          Preview the exact confirmed policy records on <code>medverify-tpa-portal.vercel.app</code> without making a live TinyFish cloud call.
+          <strong>SIMULATED DEMONSTRATION MODE (0 TINYFISH CREDITS — NOT LIVE AGENT OUTPUT):</strong>
+          Preview how the workspace renders each confirmed policy scenario on <code>medverify-tpa-portal.vercel.app</code> without making a live TinyFish cloud call.
         </div>
         <div class="sim-scenario-pills">
           <button type="button" class="scenario-btn active" data-scenario="pol100245">POL-100245 (Rahul Sharma &middot; Active)</button>
@@ -132,6 +138,30 @@
               <input id="diagnosis-input" class="ws-input" type="text" value="Acute Cholecystitis / ICD-10 K81.0" placeholder="e.g., Acute Cholecystitis / ICD-10 K81.0" required />
             </div>
 
+            <div class="field-row-2">
+              <div class="field-group">
+                <label class="field-label" for="room-category-select">
+                  <span>Room Category</span>
+                  <span class="field-hint">Pre-Auth Form</span>
+                </label>
+                <select id="room-category-select" class="ws-select">
+                  <option value="General">General</option>
+                  <option value="Semi-Private" selected>Semi-Private</option>
+                  <option value="Deluxe">Deluxe</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="sample-doc-select">
+                  <span>Supporting Document</span>
+                  <span class="field-hint">Stage 05</span>
+                </label>
+                <select id="sample-doc-select" class="ws-select">
+                  <option value="true" selected>sample_clinical_document.pdf</option>
+                </select>
+              </div>
+            </div>
+
             <div class="field-group">
               <label class="field-label" for="portal-url-input">
                 <span>Target Mock TPA Portal URL</span>
@@ -160,7 +190,7 @@
 
           <!-- Dynamic Status Banner -->
           <div id="ws-status-banner" class="ws-status-banner" role="status">
-            <strong>Ready for Verification:</strong> Target portal configured to <code>https://medverify-tpa-portal.vercel.app/</code>. Select a policy preset on the left or switch to <strong>Simulated Demo (0 Credits)</strong> above to preview all confirmed portal outcomes.
+            <strong>Ready for Verification:</strong> Target portal configured to <code>https://medverify-tpa-portal.vercel.app/</code>. Click <strong>Verify Policy &amp; Stage Form (Live SDK)</strong> to launch real TinyFish automation, or click <strong>Preview Selected Policy Outcome (0 Credits)</strong> to inspect simulated outcomes.
           </div>
 
           <!-- Three Aligned Coverage Vitals -->
@@ -193,6 +223,26 @@
             </div>
           </div>
 
+          <!-- Evaluation & Review-Screen Evidence Strip -->
+          <div class="evidence-strip" aria-label="Workflow Evaluation Telemetry">
+            <div class="evidence-cell">
+              <span class="evidence-label">Portal Screen Reached</span>
+              <span id="ev-portal-step" class="evidence-val">&mdash;</span>
+            </div>
+            <div class="evidence-cell">
+              <span class="evidence-label">Staged Diagnosis &amp; Tariff</span>
+              <span id="ev-staged-summary" class="evidence-val">&mdash;</span>
+            </div>
+            <div class="evidence-cell">
+              <span class="evidence-label">Field Accuracy Audit</span>
+              <span id="ev-accuracy" class="evidence-val">&mdash;</span>
+            </div>
+            <div class="evidence-cell">
+              <span class="evidence-label">Preparation Time</span>
+              <span id="ev-prep-time" class="evidence-val">&mdash; <small>(vs ~4–6m manual)</small></span>
+            </div>
+          </div>
+
           <!-- 3-Stage Automation Timeline matching confirmed portal workflow -->
           <div class="ws-timeline-list" aria-label="Automation Stages">
             <div id="tl-step-1" class="ws-tl-item">
@@ -212,11 +262,11 @@
               <span class="ws-tl-dot"></span>
               <div class="ws-tl-body">
                 <div class="ws-tl-top">
-                  <span class="ws-tl-title">02. Pre-Authorization Form &amp; Document Staging</span>
+                  <span class="ws-tl-title">02. Pre-Authorization Form &amp; Document Upload</span>
                   <span id="tl-badge-2" class="ws-tl-badge">PENDING</span>
                 </div>
                 <div id="tl-desc-2" class="ws-tl-desc">
-                  Initiates Pre-Authorization, fills Diagnosis &amp; Estimated Cost, and selects Use Sample Document (<code>sample_clinical_document.pdf</code>).
+                  Initiates Pre-Authorization, fills Diagnosis, Cost &amp; Room Category, and attaches <code>sample_clinical_document.pdf</code>.
                 </div>
                 <div id="tl-fields-wrap" class="prepared-tags-wrap"></div>
               </div>
@@ -236,13 +286,18 @@
             </div>
           </div>
 
-          <!-- 03 / 03 MANDATORY HUMAN REVIEW GATE -->
+          <!-- 03 / 03 MANDATORY HUMAN REVIEW GATE & MANUAL FALLBACK -->
           <div id="human-gate" class="human-gate-panel">
             <div class="human-gate-left">
               <div class="human-gate-eyebrow">03 / 03 &middot; Mandatory Human Review Stage</div>
               <div class="human-gate-title">Automatic Submission Permanently Disabled</div>
               <div id="human-gate-copy" class="human-gate-copy">
-                MedVerify halts at the portal's Review &amp; Verify screen and never clicks Submit Pre-Authorization. A hospital coordinator must review the staged fields before final submission.
+                MedVerify halts at the portal's Review &amp; Verify screen and never clicks Submit Pre-Authorization. A hospital coordinator must review the staged fields before final submission, or use the manual portal fallback if automation halts.
+              </div>
+              <div style="margin-top: 10px;">
+                <a id="manual-fallback-link" href="https://medverify-tpa-portal.vercel.app/" target="_blank" rel="noopener noreferrer" class="fallback-btn-link">
+                  Manual Fallback / Coordinator Review: Open TPA Portal &nearr;
+                </a>
               </div>
             </div>
             <div class="human-gate-telemetry">

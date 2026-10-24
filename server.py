@@ -7,7 +7,7 @@ Connects the frontend (frontend/) directly to tinyfish_client.verify_policy().
 Security & Architecture:
 - Keeps TINYFISH_API_KEY strictly on the Python backend (never exposed to frontend code).
 - Uses https://medverify-tpa-portal.vercel.app/ as the default configurable portal URL.
-- Preserves tinyfish_client.verify_policy(policy_id, diagnosis, estimated_cost, portal_url).
+- Preserves tinyfish_client.verify_policy() and logs real verification telemetry.
 
 Usage:
     python server.py
@@ -18,6 +18,7 @@ import json
 import mimetypes
 import os
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -26,7 +27,28 @@ from tinyfish_client import DEFAULT_PORTAL_URL, load_env_file, verify_policy
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
+RUNS_LOG_PATH = BASE_DIR / "runs_log.jsonl"
 DEFAULT_PORT = int(os.getenv("MEDVERIFY_PORT", "8080"))
+
+
+def _append_run_log(result: dict) -> None:
+    """Append real backend verification runs to runs_log.jsonl for evaluation evidence."""
+    try:
+        entry = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "policy_id": result.get("policy_id"),
+            "run_status": result.get("run_status"),
+            "success": result.get("success"),
+            "policy_status": result.get("policy_status"),
+            "stopped_at_review": result.get("stopped_at_review"),
+            "submitted": result.get("submitted"),
+            "elapsed_seconds": result.get("elapsed_seconds"),
+            "field_accuracy_verified": (result.get("field_accuracy") or {}).get("verified"),
+        }
+        with RUNS_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 class MedVerifyRequestHandler(BaseHTTPRequestHandler):
@@ -113,8 +135,13 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             policy_id=data.get("policy_id", ""),
             diagnosis=data.get("diagnosis", ""),
             estimated_cost=data.get("estimated_cost", ""),
-            portal_url=data.get("portal_url", ""),
+            portal_url=data.get("portal_url", DEFAULT_PORTAL_URL),
+            room_category=data.get("room_category", "Semi-Private"),
+            hospital_name=data.get("hospital_name", "Apollo Care Superspecialty Hospital"),
+            doctor_name=data.get("doctor_name", "Dr. Rajesh K. Mehta"),
+            use_sample_document=bool(data.get("use_sample_document", True)),
         )
+        _append_run_log(result)
         self._send_json(200, result)
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
