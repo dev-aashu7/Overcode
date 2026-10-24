@@ -83,13 +83,14 @@
           <button type="button" class="scenario-btn" data-scenario="pol309872">POL-309872 (Priya Nair &middot; Active)</button>
           <button type="button" class="scenario-btn" data-scenario="pol999001">POL-999001 (Vikram Malhotra &middot; Lapsed)</button>
           <button type="button" class="scenario-btn" data-scenario="unknown">Unknown ID (POL-999999)</button>
+          <button type="button" class="scenario-btn" data-scenario="mismatch">Field Mismatch Test</button>
         </div>
       </div>
 
       <!-- Practical Two-Column Workspace -->
       <div class="workspace-split">
 
-        <!-- LEFT COLUMN: 01 / 03 CASE INTAKE -->
+        <!-- LEFT COLUMN: 01 / 03 SINGLE CASE INTAKE -->
         <div class="ws-panel reveal-up in-view">
           <div class="ws-step-header">
             <span class="ws-step-title">Case Intake Parameters</span>
@@ -97,10 +98,16 @@
           </div>
 
           <form id="verify-form" novalidate>
+            <!-- SECTION A: PATIENT & POLICY LOOKUP -->
+            <div class="intake-subhead">
+              <span>A. Patient &amp; Policy Lookup</span>
+              <span class="intake-subnote">Demographics extracted automatically from portal</span>
+            </div>
+
             <div class="preset-row">
               <label class="field-label" for="preset-select">
                 <span>Confirmed Portal Policy Preset</span>
-                <span class="field-hint">APEXCARE TPA RECORDS</span>
+                <span class="field-hint">SYNTHETIC FIXTURES</span>
               </label>
               <select id="preset-select" class="ws-select">
                 <option value="pol100245" selected>POL-100245 &mdash; Rahul Sharma (Active &middot; ₹5,000/day &middot; 0% Co-Pay)</option>
@@ -122,12 +129,18 @@
               </div>
 
               <div class="field-group">
-                <label class="field-label" for="cost-input">
-                  <span>Estimated Cost (INR)</span>
-                  <span class="field-hint">Tariff</span>
+                <label class="field-label" for="portal-url-input">
+                  <span>Authorized TPA Portal URL</span>
+                  <span class="field-hint">Allowlisted</span>
                 </label>
-                <input id="cost-input" class="ws-input" type="number" min="1000" step="1000" value="85000" required />
+                <input id="portal-url-input" class="ws-input" type="url" value="https://medverify-tpa-portal.vercel.app/" placeholder="https://medverify-tpa-portal.vercel.app/" required />
               </div>
+            </div>
+
+            <!-- SECTION B: CLINICAL & TREATMENT ORDER (REUSED FOR PRE-AUTH STAGING) -->
+            <div class="intake-subhead" style="margin-top: 10px;">
+              <span>B. Clinical &amp; Treatment Order</span>
+              <span class="intake-subnote">Reused to populate TPA Pre-Auth Form &amp; Document step</span>
             </div>
 
             <div class="field-group">
@@ -140,6 +153,14 @@
 
             <div class="field-row-2">
               <div class="field-group">
+                <label class="field-label" for="cost-input">
+                  <span>Estimated Cost (INR)</span>
+                  <span class="field-hint">Tariff</span>
+                </label>
+                <input id="cost-input" class="ws-input" type="number" min="1000" step="1000" value="85000" required />
+              </div>
+
+              <div class="field-group">
                 <label class="field-label" for="room-category-select">
                   <span>Room Category</span>
                   <span class="field-hint">Pre-Auth Form</span>
@@ -150,24 +171,20 @@
                   <option value="Deluxe">Deluxe</option>
                 </select>
               </div>
-
-              <div class="field-group">
-                <label class="field-label" for="sample-doc-select">
-                  <span>Supporting Document</span>
-                  <span class="field-hint">Stage 05</span>
-                </label>
-                <select id="sample-doc-select" class="ws-select">
-                  <option value="true" selected>sample_clinical_document.pdf</option>
-                </select>
-              </div>
             </div>
 
             <div class="field-group">
-              <label class="field-label" for="portal-url-input">
-                <span>Target Mock TPA Portal URL</span>
-                <span class="field-hint">Configurable URL</span>
+              <label class="field-label" for="sample-doc-select">
+                <span>Supporting Clinical Document</span>
+                <span class="field-hint">Document Upload Step</span>
               </label>
-              <input id="portal-url-input" class="ws-input" type="url" value="https://medverify-tpa-portal.vercel.app/" placeholder="https://medverify-tpa-portal.vercel.app/" required />
+              <select id="sample-doc-select" class="ws-select">
+                <option value="true" selected>sample_clinical_document.pdf (Portal Synthetic Document)</option>
+              </select>
+            </div>
+
+            <div class="intake-his-note">
+              <strong>Single-Entry Workflow:</strong> Coordinator enters case details once; TinyFish reuses them only if the extracted policy is <code>Active</code>. <em>(Future hospital integration: import via HIS/FHIR encounter hook.)</em>
             </div>
 
             <button type="submit" id="verify-submit-btn" class="ws-submit-btn">
@@ -230,11 +247,11 @@
               <span id="ev-portal-step" class="evidence-val">&mdash;</span>
             </div>
             <div class="evidence-cell">
-              <span class="evidence-label">Staged Diagnosis &amp; Tariff</span>
+              <span class="evidence-label">Staged Review Values</span>
               <span id="ev-staged-summary" class="evidence-val">&mdash;</span>
             </div>
             <div class="evidence-cell">
-              <span class="evidence-label">Field Accuracy Audit</span>
+              <span class="evidence-label">Fixture &amp; Input Cross-Check</span>
               <span id="ev-accuracy" class="evidence-val">&mdash;</span>
             </div>
             <div class="evidence-cell">
@@ -253,7 +270,7 @@
                   <span id="tl-badge-1" class="ws-tl-badge">PENDING</span>
                 </div>
                 <div id="tl-desc-1" class="ws-tl-desc">
-                  Opens Policy Search, queries Policy ID, and extracts status, room-rent limit, and co-payment clause.
+                  Opens Policy Search, queries Policy ID, and extracts patient name, status, room-rent limit, and co-payment clause.
                 </div>
               </div>
             </div>
@@ -266,7 +283,7 @@
                   <span id="tl-badge-2" class="ws-tl-badge">PENDING</span>
                 </div>
                 <div id="tl-desc-2" class="ws-tl-desc">
-                  Initiates Pre-Authorization, fills Diagnosis, Cost &amp; Room Category, and attaches <code>sample_clinical_document.pdf</code>.
+                  Driven by Active status: populates Diagnosis, Cost &amp; Room Category, and stages <code>sample_clinical_document.pdf</code>.
                 </div>
                 <div id="tl-fields-wrap" class="prepared-tags-wrap"></div>
               </div>
@@ -276,11 +293,11 @@
               <span class="ws-tl-dot"></span>
               <div class="ws-tl-body">
                 <div class="ws-tl-top">
-                  <span class="ws-tl-title">03. Review &amp; Verify Screen Halt</span>
+                  <span class="ws-tl-title">03. Review &amp; Verify Screen Halt &amp; Cross-Check</span>
                   <span id="tl-badge-3" class="ws-tl-badge">LOCKED</span>
                 </div>
                 <div id="tl-desc-3" class="ws-tl-desc">
-                  Navigates to Review &amp; Verify and stops without clicking Submit Pre-Authorization.
+                  Reads back staged values on Review &amp; Verify, cross-checks against case inputs, and halts without submitting.
                 </div>
               </div>
             </div>

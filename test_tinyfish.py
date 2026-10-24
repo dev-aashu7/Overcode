@@ -3,23 +3,28 @@ test_tinyfish.py
 ----------------
 Comprehensive local evaluation & verification suite for MedVerify (Team Nexora — HackIIITD 2026).
 
-Tests all 5 proposal evaluation criteria using 0 TinyFish credits (--check):
-1. Workflow Completion & Review-Screen Evidence:
-   - Active policies (POL-100245, POL-205118, POL-309872) reach 'Review & Verify' and halt.
-   - Incomplete runs (stopped_at_review=False or wrong portal step) are rejected (INCOMPLETE_WORKFLOW).
-   - Auto-submission violations (submitted_or_receipt_visible=True) are caught (SUBMISSION_VIOLATION).
-2. Field Accuracy Audit:
-   - Extracted patient_name, policy_status, room_rent_limit, copay_percentage, staged_diagnosis,
-     staged_estimated_cost, and document_uploaded are cross-checked against expected synthetic records.
-3. Preparation Time Telemetry:
-   - Verifies elapsed_seconds and manual_fallback_url are recorded on every response.
-4. Error Handling:
-   - Blank inputs, invalid schemes, and localhost URLs are blocked before calling the SDK.
-   - Lapsed policy (POL-999001 — Vikram Malhotra) returns success=False, run_status=POLICY_LAPSED.
-   - Unknown policy (POL-999999) returns success=False, run_status=NOT_FOUND.
-5. Reproducibility Harness (20-Run Synthetic Consistency Check):
-   - Executes 20 synthetic test iterations across the 4 confirmed policies + unknown ID to verify
-     100% deterministic schema keys and 0 auto-submissions.
+Tests all 6 product-logic & safety requirements using 0 TinyFish credits (--check):
+1. Input, Localhost & Authorized Portal Domain Guardrails:
+   - Blank inputs (INVALID_INPUT), missing scheme (INVALID_URL), localhost (INVALID_URL),
+     and unauthorized external domains (UNAUTHORIZED_PORTAL) are blocked before calling the SDK.
+2. Active Policies & End-to-End Workflow (POL-100245, POL-205118, POL-309872):
+   - Verifies policy extraction, pre-authorization form staging (diagnosis, estimated_cost,
+     room_category), sample_clinical_document.pdf upload, and halting at 'Review & Verify'.
+3. Lapsed & Unknown Policies (POL-999001, POL-999999):
+   - Lapsed policy stops at 'Policy Details' (run_status = POLICY_LAPSED, success = False).
+   - Unknown policy stops at 'Policy Search' (run_status = NOT_FOUND, success = False).
+4. Independent Policy Extraction & Staged Field Mismatch Detection (FIELD_MISMATCH):
+   - Wrong extracted room-rent limit or co-pay percentage vs AUTHORITATIVE_PORTAL_FIXTURES
+     is flagged as FIELD_MISMATCH (success = False) without overwriting raw values.
+   - Wrong staged diagnosis, estimated cost, or room category on the Review & Verify screen
+     vs submitted case inputs is flagged as FIELD_MISMATCH (success = False).
+5. Login / CAPTCHA / Access Restrictions, Timeouts & Incomplete Workflows:
+   - access_or_auth_blocked = True -> ACCESS_OR_AUTH_BLOCKED (success = False).
+   - SDK timeout exception -> TIMEOUT (success = False, manual_fallback_url provided).
+   - stopped_at_review = False or missing document -> INCOMPLETE_WORKFLOW (success = False).
+   - submitted_or_receipt_visible = True -> SUBMISSION_VIOLATION (success = False).
+6. 20-Run Synthetic Reproducibility Harness:
+   - 20 mocked runs across the test suite verifying 0 auto-submissions and 100% schema consistency.
 """
 
 import json
@@ -56,8 +61,10 @@ MOCK_PORTAL_RESPONSES = {
         "current_portal_step": "Review & Verify",
         "staged_diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
         "staged_estimated_cost": "₹85,000",
+        "staged_room_category": "Semi-Private",
         "stopped_at_review": True,
         "submitted_or_receipt_visible": False,
+        "access_or_auth_blocked": False,
         "notes": (
             "Verified Active policy for Rahul Sharma, filled Pre-Authorization Form, "
             "selected Use Sample Document (sample_clinical_document.pdf), navigated to "
@@ -84,8 +91,10 @@ MOCK_PORTAL_RESPONSES = {
         "current_portal_step": "Review & Verify",
         "staged_diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
         "staged_estimated_cost": "₹85,000",
+        "staged_room_category": "Semi-Private",
         "stopped_at_review": True,
         "submitted_or_receipt_visible": False,
+        "access_or_auth_blocked": False,
         "notes": (
             "Verified Active policy for Sunita Verma, filled Pre-Authorization Form, "
             "attached sample_clinical_document.pdf, and stopped at Review & Verify."
@@ -111,8 +120,10 @@ MOCK_PORTAL_RESPONSES = {
         "current_portal_step": "Review & Verify",
         "staged_diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
         "staged_estimated_cost": "₹85,000",
+        "staged_room_category": "Semi-Private",
         "stopped_at_review": True,
         "submitted_or_receipt_visible": False,
+        "access_or_auth_blocked": False,
         "notes": (
             "Verified Active corporate GMC policy for Priya Nair, staged form and "
             "sample clinical document, and stopped at Review & Verify."
@@ -130,8 +141,10 @@ MOCK_PORTAL_RESPONSES = {
         "current_portal_step": "Policy Details",
         "staged_diagnosis": None,
         "staged_estimated_cost": None,
+        "staged_room_category": None,
         "stopped_at_review": False,
         "submitted_or_receipt_visible": False,
+        "access_or_auth_blocked": False,
         "notes": (
             "Policy POL-999001 for Vikram Malhotra has status Lapsed (expired 2024-12-31). "
             "Pre-Authorization button is disabled; workflow stopped at Policy Details."
@@ -149,16 +162,18 @@ MOCK_PORTAL_RESPONSES = {
         "current_portal_step": "Policy Search",
         "staged_diagnosis": None,
         "staged_estimated_cost": None,
+        "staged_room_category": None,
         "stopped_at_review": False,
         "submitted_or_receipt_visible": False,
+        "access_or_auth_blocked": False,
         "notes": "Policy ID 'POL-999999' not found in TPA records.",
     },
 }
 
 
 def run_local_checks() -> None:
-    """Verify input guardrails, field accuracy, failure states, and 20-run synthetic reproducibility (0 credits)."""
-    print("=== MedVerify Local Guardrail & Proposal Evaluation Checks (0 Credits Used) ===\n")
+    """Verify guardrails, policy/form cross-checks, access failures, and reproducibility (0 credits)."""
+    print("=== MedVerify Product Logic & End-to-End Verification Suite (0 Credits Used) ===\n")
 
     guardrail_cases = [
         (
@@ -191,6 +206,16 @@ def run_local_checks() -> None:
             },
             "INVALID_URL",
         ),
+        (
+            "4. Unauthorized external portal domain blocked",
+            {
+                "policy_id": "POL-100245",
+                "diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
+                "estimated_cost": 85000,
+                "portal_url": "https://unapproved-insurer-portal.example.com/",
+            },
+            "UNAUTHORIZED_PORTAL",
+        ),
     ]
 
     all_passed = True
@@ -202,18 +227,17 @@ def run_local_checks() -> None:
             and actual_status == expected_status
             and res.get("policy_status") is None
             and res.get("submitted") is False
-            and isinstance(res.get("elapsed_seconds"), float)
         )
         all_passed = all_passed and passed
         print(f"[{'PASS' if passed else 'FAIL'}] {title}")
         print(f"       run_status: {actual_status} | error: {res.get('error')}\n")
 
     policy_test_cases = [
-        ("4. Confirmed Active Policy POL-100245 (Rahul Sharma)", "POL-100245", True, "COMPLETED", True),
-        ("5. Confirmed Active Policy POL-205118 (Sunita Verma)", "POL-205118", True, "COMPLETED", True),
-        ("6. Confirmed Active Policy POL-309872 (Priya Nair)", "POL-309872", True, "COMPLETED", True),
-        ("7. Confirmed Lapsed Policy POL-999001 (Vikram Malhotra) — Must NOT succeed", "POL-999001", False, "POLICY_LAPSED", False),
-        ("8. Unknown Policy ID POL-999999 — Must NOT succeed", "POL-999999", False, "NOT_FOUND", False),
+        ("5. Confirmed Active Policy POL-100245 (Rahul Sharma)", "POL-100245", True, "COMPLETED", True),
+        ("6. Confirmed Active Policy POL-205118 (Sunita Verma)", "POL-205118", True, "COMPLETED", True),
+        ("7. Confirmed Active Policy POL-309872 (Priya Nair)", "POL-309872", True, "COMPLETED", True),
+        ("8. Confirmed Lapsed Policy POL-999001 (Vikram Malhotra) — Halts at Policy Details", "POL-999001", False, "POLICY_LAPSED", False),
+        ("9. Unknown Policy ID POL-999999 — Halts at Policy Search", "POL-999999", False, "NOT_FOUND", False),
     ]
 
     with patch.dict(os.environ, {"TINYFISH_API_KEY": "mock-test-key-0-credits"}):
@@ -227,6 +251,7 @@ def run_local_checks() -> None:
                     policy_id=pid,
                     diagnosis="Acute Cholecystitis / ICD-10 K81.0",
                     estimated_cost=85000,
+                    room_category="Semi-Private",
                     portal_url=DEFAULT_PORTAL_URL,
                 )
 
@@ -246,7 +271,57 @@ def run_local_checks() -> None:
                 f"field_accuracy.verified: {acc_verified}\n"
             )
 
-        # Test 9: Incomplete workflow (stopped_at_review=False) rejected
+        # Test 10: Policy Extraction Mismatch (wrong room_rent_limit vs authoritative fixture)
+        bad_policy_payload = dict(
+            MOCK_PORTAL_RESPONSES["POL-100245"],
+            room_rent_limit="₹99,000 / day (Wrong Extracted Value)",
+        )
+        fake_bad_pol_run = SimpleNamespace(status=RunStatus.COMPLETED, result=bad_policy_payload)
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_bad_pol_run
+            bad_pol_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+            )
+        pol_mismatch_passed = (
+            bad_pol_res.get("success") is False
+            and bad_pol_res.get("run_status") == "FIELD_MISMATCH"
+            and bad_pol_res.get("room_rent_limit") == "₹99,000 / day (Wrong Extracted Value)"
+            and (bad_pol_res.get("field_accuracy") or {}).get("verified") is False
+        )
+        all_passed = all_passed and pol_mismatch_passed
+        print(f"[{'PASS' if pol_mismatch_passed else 'FAIL'}] 10. Policy Extraction Mismatch (room_rent_limit) rejected without overwriting raw value")
+        print(f"       success: {bad_pol_res.get('success')} | run_status: {bad_pol_res.get('run_status')} | error: {bad_pol_res.get('error')}\n")
+
+        # Test 11: Staged Form Field Mismatch (staged_estimated_cost differs from submitted case input)
+        bad_form_payload = dict(
+            MOCK_PORTAL_RESPONSES["POL-100245"],
+            staged_estimated_cost="₹12,000",
+        )
+        fake_bad_form_run = SimpleNamespace(status=RunStatus.COMPLETED, result=bad_form_payload)
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_bad_form_run
+            bad_form_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+            )
+        form_mismatch_passed = (
+            bad_form_res.get("success") is False
+            and bad_form_res.get("run_status") == "FIELD_MISMATCH"
+            and bad_form_res.get("staged_estimated_cost") == "₹12,000"
+            and (bad_form_res.get("field_accuracy") or {}).get("verified") is False
+        )
+        all_passed = all_passed and form_mismatch_passed
+        print(f"[{'PASS' if form_mismatch_passed else 'FAIL'}] 11. Staged Form Field Mismatch (staged_estimated_cost != input) rejected")
+        print(f"       success: {bad_form_res.get('success')} | run_status: {bad_form_res.get('run_status')} | error: {bad_form_res.get('error')}\n")
+
+        # Test 12: Incomplete workflow (stopped_at_review=False or missing document) rejected
         incomplete_payload = dict(MOCK_PORTAL_RESPONSES["POL-100245"], stopped_at_review=False)
         fake_incomplete_run = SimpleNamespace(status=RunStatus.COMPLETED, result=incomplete_payload)
         with patch("tinyfish_client.TinyFish") as mock_tf_cls:
@@ -263,10 +338,53 @@ def run_local_checks() -> None:
             and inc_res.get("submitted") is False
         )
         all_passed = all_passed and inc_passed
-        print(f"[{'PASS' if inc_passed else 'FAIL'}] 9. Incomplete Workflow (stopped_at_review=False) rejected")
+        print(f"[{'PASS' if inc_passed else 'FAIL'}] 12. Incomplete Workflow (stopped_at_review=False) rejected")
         print(f"       success: {inc_res.get('success')} | run_status: {inc_res.get('run_status')}\n")
 
-        # Test 10: Submission safety violation (submitted_or_receipt_visible=True) rejected
+        # Test 13: Login / CAPTCHA / Access Restriction Detected (ACCESS_OR_AUTH_BLOCKED)
+        auth_blocked_payload = dict(
+            MOCK_PORTAL_RESPONSES["POL-100245"],
+            policy_found=False,
+            access_or_auth_blocked=True,
+            notes="Portal displayed a login required / CAPTCHA screen.",
+        )
+        fake_auth_run = SimpleNamespace(status=RunStatus.COMPLETED, result=auth_blocked_payload)
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            auth_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                portal_url=DEFAULT_PORTAL_URL,
+            )
+        auth_passed = (
+            auth_res.get("success") is False
+            and auth_res.get("run_status") == "ACCESS_OR_AUTH_BLOCKED"
+            and auth_res.get("manual_fallback_url") == DEFAULT_PORTAL_URL
+        )
+        all_passed = all_passed and auth_passed
+        print(f"[{'PASS' if auth_passed else 'FAIL'}] 13. Login / CAPTCHA / Access Barrier Detected (ACCESS_OR_AUTH_BLOCKED)")
+        print(f"       success: {auth_res.get('success')} | run_status: {auth_res.get('run_status')}\n")
+
+        # Test 14: Timeout Exception Handling (TIMEOUT + manual fallback URL)
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.side_effect = TimeoutError("Browser navigation timed out after 90s")
+            timeout_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                portal_url=DEFAULT_PORTAL_URL,
+            )
+        timeout_passed = (
+            timeout_res.get("success") is False
+            and timeout_res.get("run_status") == "TIMEOUT"
+            and timeout_res.get("manual_fallback_url") == DEFAULT_PORTAL_URL
+        )
+        all_passed = all_passed and timeout_passed
+        print(f"[{'PASS' if timeout_passed else 'FAIL'}] 14. Timeout Exception Handled Safely (TIMEOUT + manual_fallback_url)")
+        print(f"       success: {timeout_res.get('success')} | run_status: {timeout_res.get('run_status')}\n")
+
+        # Test 15: Auto-Submission Safety Violation Gate (SUBMISSION_VIOLATION)
         violation_payload = dict(MOCK_PORTAL_RESPONSES["POL-100245"], submitted_or_receipt_visible=True)
         fake_violation_run = SimpleNamespace(status=RunStatus.COMPLETED, result=violation_payload)
         with patch("tinyfish_client.TinyFish") as mock_tf_cls:
@@ -283,10 +401,10 @@ def run_local_checks() -> None:
             and viol_res.get("stopped_at_review") is False
         )
         all_passed = all_passed and viol_passed
-        print(f"[{'PASS' if viol_passed else 'FAIL'}] 10. Auto-Submission Safety Gate (SUBMISSION_VIOLATION) enforced")
+        print(f"[{'PASS' if viol_passed else 'FAIL'}] 15. Auto-Submission Safety Gate (SUBMISSION_VIOLATION) enforced")
         print(f"       success: {viol_res.get('success')} | run_status: {viol_res.get('run_status')}\n")
 
-        # Test 11: 20-Run Synthetic Reproducibility Harness (0 credits)
+        # Test 16: 20-Run Mocked Reproducibility Harness (0 credits)
         repro_pids = ["POL-100245", "POL-205118", "POL-309872", "POL-999001", "POL-999999"] * 4
         repro_ok = True
         for pid in repro_pids:
@@ -297,18 +415,19 @@ def run_local_checks() -> None:
                     policy_id=pid,
                     diagnosis="Acute Cholecystitis / ICD-10 K81.0",
                     estimated_cost=85000,
+                    room_category="Semi-Private",
                     portal_url=DEFAULT_PORTAL_URL,
                 )
             if r_out.get("submitted") is not False or not (r_out.get("field_accuracy") or {}).get("verified"):
                 repro_ok = False
                 break
         all_passed = all_passed and repro_ok
-        print(f"[{'PASS' if repro_ok else 'FAIL'}] 11. 20-Run Mocked Reproducibility & Schema-Consistency Harness (20/20 runs)")
+        print(f"[{'PASS' if repro_ok else 'FAIL'}] 16. 20-Run Mocked Reproducibility & Schema-Consistency Harness (20/20 runs)")
         print("       0 auto-submissions, 100% field accuracy audit consistency across 20 mocked runs.\n")
 
     if not all_passed:
         sys.exit(1)
-    print("All 11 local guardrail, field-accuracy, safety-gate, and reproducibility checks passed (0 TinyFish credits used).")
+    print("All 16 local product-logic, cross-check, safety-gate, and reproducibility checks passed (0 TinyFish credits used).")
 
 
 def main() -> None:

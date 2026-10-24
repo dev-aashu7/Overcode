@@ -327,8 +327,43 @@ html, body {
 }
 
 /* Intake Form Controls */
+.intake-subhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-vermilion);
+  border-bottom: 1px dashed var(--hairline-dark);
+  padding-bottom: 5px;
+  margin-bottom: 12px;
+}
+
+.intake-subnote {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-400);
+}
+
+.intake-his-note {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-600);
+  background: #FAF9F6;
+  border: 1px solid var(--hairline-dark);
+  border-radius: 6px;
+  padding: 8px 11px;
+  margin-bottom: 10px;
+}
+
 .preset-row {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .field-group {
