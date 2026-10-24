@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from tinyfish_client import DEFAULT_PORTAL_URL, verify_policy
+from tinyfish_client import DEFAULT_PORTAL_URL, load_env_file, verify_policy
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -61,6 +61,7 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
         route = parsed.path
 
         if route == "/api/health":
+            load_env_file()
             self._send_json(
                 200,
                 {

@@ -23,63 +23,52 @@ Safety & Integrity Guarantees:
 """
 
 import os
+from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
 from tinyfish import TinyFish, RunStatus
 
 DEFAULT_PORTAL_URL = "https://medverify-tpa-portal.vercel.app/"
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
 
-# Structured JSON schema for TinyFish output extraction
+
+def load_env_file() -> None:
+    """Load TINYFISH_API_KEY (and optional MOCK_PORTAL_URL) from local .env if present."""
+    if not _ENV_FILE.is_file():
+        return
+    try:
+        for raw_line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and val and not os.getenv(key):
+                os.environ[key] = val
+    except Exception:
+        pass
+
+
+load_env_file()
+
+# Structured JSON schema for TinyFish output extraction (no 'description' keys per TinyFish API validator)
 POLICY_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
-        "policy_found": {
-            "type": "boolean",
-            "description": "True if the policy ID was found in the portal records, False if not found.",
-        },
-        "patient_name": {
-            "type": "string",
-            "description": "Extracted Patient Name or Policyholder Name from the policy details.",
-        },
-        "insurer_name": {
-            "type": "string",
-            "description": "Extracted insurer or plan name from the policy details.",
-        },
-        "policy_status": {
-            "type": "string",
-            "description": "Extracted policy status (e.g., 'Active', 'Lapsed', or 'Not Found').",
-        },
-        "room_rent_limit": {
-            "type": "string",
-            "description": "Extracted Room Rent Limit from Financial Coverage & Limits.",
-        },
-        "copay_percentage": {
-            "type": "string",
-            "description": "Extracted Co-Payment Clause percentage from Financial Coverage & Limits.",
-        },
+        "policy_found": {"type": "boolean"},
+        "patient_name": {"type": "string"},
+        "insurer_name": {"type": "string"},
+        "policy_status": {"type": "string"},
+        "room_rent_limit": {"type": "string"},
+        "copay_percentage": {"type": "string"},
         "fields_prepared": {
             "type": "array",
             "items": {"type": "string"},
-            "description": (
-                "List of pre-authorization form fields and documents staged "
-                "(e.g., ['diagnosis', 'estimated_cost', 'sample_clinical_document.pdf'])."
-            ),
         },
-        "document_uploaded": {
-            "type": "string",
-            "description": "Name of the synthetic clinical document attached (e.g., 'sample_clinical_document.pdf').",
-        },
-        "stopped_at_review": {
-            "type": "boolean",
-            "description": (
-                "True ONLY if the agent reached the 'Review & Verify' screen and stopped "
-                "without clicking 'Submit Pre-Authorization'."
-            ),
-        },
-        "notes": {
-            "type": "string",
-            "description": "Concise summary of the verification and staging steps performed.",
-        },
+        "document_uploaded": {"type": "string"},
+        "stopped_at_review": {"type": "boolean"},
+        "notes": {"type": "string"},
     },
     "required": [
         "policy_found",
@@ -207,7 +196,8 @@ def verify_policy(
             run_status="INVALID_URL",
         )
 
-    # 2. Check that TINYFISH_API_KEY is set in the environment
+    # 2. Check that TINYFISH_API_KEY is set in the environment (or .env file)
+    load_env_file()
     if not os.getenv("TINYFISH_API_KEY"):
         return _build_failure_response(
             policy_id=policy_id_clean,

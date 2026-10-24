@@ -28,6 +28,9 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from tinyfish import RunStatus
 from tinyfish_client import DEFAULT_PORTAL_URL, verify_policy
 
