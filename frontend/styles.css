@@ -5,6 +5,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+  color-scheme: light only;
   --charcoal-950: #121211;
   --charcoal-900: #1A1A18;
   --alabaster: #F3F2EE;
@@ -361,8 +362,8 @@ html, body {
   height: 50px;
   margin-top: 8px;
   border-radius: 999px;
-  border: none;
-  background: var(--ink-900);
+  border: 1px solid var(--accent-vermilion);
+  background: var(--accent-vermilion);
   color: #FFFFFF;
   font-family: var(--font-display);
   font-size: 0.9rem;
@@ -376,7 +377,7 @@ html, body {
 }
 
 .ws-submit-btn:hover:not(:disabled) {
-  background: var(--accent-vermilion);
+  background: var(--accent-vermilion-hover);
   transform: translateY(-1px);
 }
 

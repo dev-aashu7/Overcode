@@ -616,16 +616,22 @@
     });
   }
 
-  // 0-Credit Backend Guardrail Test Button (tests localhost block without using credits)
+  // 0-Credit Instant Preview Button for the currently selected Policy ID
   if (guardrailTestBtn) {
     guardrailTestBtn.addEventListener("click", function () {
-      setExecutionMode("live");
-      executeBackendVerification({
-        policy_id: policyIdInput ? policyIdInput.value : "POL-100245",
-        diagnosis: diagnosisInput ? diagnosisInput.value : "Acute Cholecystitis / ICD-10 K81.0",
-        estimated_cost: costInput ? Number(costInput.value) : 85000,
-        portal_url: "http://localhost:8000"
+      const pid = (policyIdInput ? policyIdInput.value : "").trim().toUpperCase();
+      const pidMap = {
+        "POL-100245": "pol100245",
+        "POL-205118": "pol205118",
+        "POL-309872": "pol309872",
+        "POL-999001": "pol999001"
+      };
+      const key = pidMap[pid] || "unknown";
+      setExecutionMode("simulated");
+      scenarioBtns.forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-scenario") === key);
       });
+      renderVerificationResult(SIMULATED_SCENARIOS[key]);
     });
   }
 })();
