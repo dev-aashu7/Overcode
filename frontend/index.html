@@ -183,6 +183,13 @@
               </select>
             </div>
 
+            <div class="intake-his-note" style="display:flex; align-items:flex-start; gap:8px;">
+              <input id="playwright-fallback-checkbox" type="checkbox" style="margin-top:3px;" />
+              <label for="playwright-fallback-checkbox" style="cursor:pointer;">
+                <strong>Optional Local Fallback (Headed Chromium):</strong> Used <em>only</em> when TinyFish returns <code>ACCESS_OR_AUTH_BLOCKED</code> on the allowlisted portal. Pauses with status <strong>Waiting for human check</strong> (5m timeout, never bypasses CAPTCHAs) and resumes once <code>Policy Search</code> appears.
+              </label>
+            </div>
+
             <div class="intake-his-note">
               <strong>Single-Entry Workflow:</strong> Coordinator enters case details once; TinyFish reuses them only if the extracted policy is <code>Active</code>. <em>(Future hospital integration: import via HIS/FHIR encounter hook.)</em>
             </div>

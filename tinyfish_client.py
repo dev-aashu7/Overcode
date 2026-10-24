@@ -29,9 +29,14 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 from urllib.parse import urlparse
 from tinyfish import TinyFish, RunStatus
+from playwright_fallback import (
+    DEFAULT_HUMAN_CHECK_TIMEOUT_SECONDS,
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    run_headed_playwright_fallback,
+)
 
 DEFAULT_PORTAL_URL = "https://medverify-tpa-portal.vercel.app/"
 _ENV_FILE = Path(__file__).resolve().parent / ".env"
@@ -915,6 +920,11 @@ def verify_policy(
     hospital_name: str = "Apollo Care Superspecialty Hospital",
     doctor_name: str = "Dr. Rajesh K. Mehta",
     use_sample_document: bool = True,
+    enable_playwright_fallback: bool = False,
+    human_check_timeout_seconds: float = DEFAULT_HUMAN_CHECK_TIMEOUT_SECONDS,
+    poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    status_callback: Callable[[str, str], None] | None = None,
+    playwright_stub_page: Any = None,
 ) -> Dict[str, Any]:
     """
     Execute the confirmed MedVerify TinyFish workflow against the authorized mock TPA portal
@@ -1086,65 +1096,185 @@ def verify_policy(
         fields_prepared = []
 
     # Check for authentication / CAPTCHA / MFA / access restriction
+    fallback_used: str | None = None
+    paused_for_human_check: bool = False
+    human_check_status_history: List[str] = []
+
     combined_notes = f"{notes or ''} {current_portal_step or ''}".lower()
     if access_blocked or any(
         tok in combined_notes
         for tok in ("captcha", "login required", "mfa", "two-factor", "access denied", "403 forbidden")
     ):
-        return {
-            "success": False,
-            "run_status": "ACCESS_OR_AUTH_BLOCKED",
-            "policy_id": policy_id_clean,
-            "extracted_policy_id": extracted_policy_id,
-            "portal_url": portal_url_clean,
-            "manual_fallback_url": portal_url_clean,
-            "elapsed_seconds": elapsed_seconds,
-            "timing": timing_meta,
-            "policy_found": False,
-            "patient_name": None,
-            "insurer_name": None,
-            "policy_status": None,
-            "room_rent_limit": None,
-            "copay_percentage": None,
-            "co_payment": None,
-            "fields_prepared": [],
-            "document_uploaded": None,
-            "current_portal_step": current_portal_step,
-            "staged_diagnosis": None,
-            "staged_estimated_cost": None,
-            "staged_room_category": None,
-            "form_prepared": False,
-            "stopped_at_review": False,
-            "submitted": False,
-            "submission_safeguard_verified": False,
-            "field_accuracy": {
-                "verified": False,
-                "fixture_source": "none",
-                "total_checks": 1,
-                "passed_count": 0,
-                "mismatch_count": 0,
-                "not_verified_count": 1,
-                "checks": [
-                    {
-                        "field": "portal_access",
-                        "label": "Portal Access & Auth Check",
-                        "expected": "Open sandbox portal without login/CAPTCHA barrier",
-                        "actual": notes or "Access or authentication barrier detected",
-                        "status": "NOT VERIFIED",
-                    }
-                ],
-                "matched_checks": [],
-                "policy_discrepancies": [],
-                "staging_discrepancies": [],
-                "discrepancies": ["Portal access or authentication barrier detected."],
-            },
-            "notes": notes,
-            "error": (
-                "Portal requires authentication, CAPTCHA, or restricted access. "
-                "MedVerify never bypasses access controls; please use the manual portal fallback."
-            ),
-            "raw_result": result,
-        }
+        if enable_playwright_fallback:
+            # Optional local headed-Chromium fallback on the allowlisted portal URL ONLY
+            fb_out = run_headed_playwright_fallback(
+                portal_url=portal_url_clean,
+                policy_id=policy_id_clean,
+                diagnosis=diagnosis_clean,
+                estimated_cost=cost_clean,
+                room_category=room_cat_clean,
+                hospital_name=hosp_clean,
+                doctor_name=doc_clean,
+                use_sample_document=use_sample_document,
+                human_check_timeout_seconds=human_check_timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+                status_callback=status_callback,
+                stub_page=playwright_stub_page,
+            )
+            elapsed_seconds = round(time.perf_counter() - start_ts, 2)
+            timing_meta = _build_timing_metadata(elapsed_seconds, is_measured_live_run=True)
+            fallback_used = "playwright_headed_chromium"
+            paused_for_human_check = bool(fb_out.get("paused_for_human", False))
+            human_check_status_history = list(fb_out.get("status_history") or [])
+
+            if fb_out.get("timed_out") or fb_out.get("run_status") == "HUMAN_CHECK_TIMEOUT":
+                timeout_err = fb_out.get("error") or (
+                    f"Human verification check timed out after {human_check_timeout_seconds}s."
+                )
+                return {
+                    "success": False,
+                    "run_status": "HUMAN_CHECK_TIMEOUT",
+                    "fallback_used": fallback_used,
+                    "paused_for_human_check": paused_for_human_check,
+                    "human_check_status_history": human_check_status_history,
+                    "policy_id": policy_id_clean,
+                    "extracted_policy_id": None,
+                    "portal_url": portal_url_clean,
+                    "manual_fallback_url": portal_url_clean,
+                    "elapsed_seconds": elapsed_seconds,
+                    "timing": timing_meta,
+                    "policy_found": False,
+                    "patient_name": None,
+                    "insurer_name": None,
+                    "policy_status": None,
+                    "room_rent_limit": None,
+                    "copay_percentage": None,
+                    "co_payment": None,
+                    "fields_prepared": [],
+                    "document_uploaded": None,
+                    "current_portal_step": "Waiting for human check (Timed Out)",
+                    "staged_diagnosis": None,
+                    "staged_estimated_cost": None,
+                    "staged_room_category": None,
+                    "form_prepared": False,
+                    "stopped_at_review": False,
+                    "submitted": False,
+                    "submission_safeguard_verified": False,
+                    "field_accuracy": {
+                        "verified": False,
+                        "fixture_source": "none",
+                        "total_checks": 1,
+                        "passed_count": 0,
+                        "mismatch_count": 0,
+                        "not_verified_count": 1,
+                        "checks": [
+                            {
+                                "field": "human_verification_check",
+                                "label": "Human Verification Check (Local Headed Chromium)",
+                                "expected": f"Human completes check within {human_check_timeout_seconds}s and 'Policy Search' appears",
+                                "actual": f"Timed out after {fb_out.get('waited_seconds', human_check_timeout_seconds)}s (HUMAN_CHECK_TIMEOUT)",
+                                "status": "NOT VERIFIED",
+                            }
+                        ],
+                        "matched_checks": [],
+                        "policy_discrepancies": [],
+                        "staging_discrepancies": [],
+                        "discrepancies": [timeout_err],
+                    },
+                    "notes": timeout_err,
+                    "error": timeout_err,
+                    "raw_result": fb_out,
+                }
+
+            if not isinstance(fb_out.get("extracted"), dict):
+                fb_err = fb_out.get("error") or "Local Playwright fallback did not return extracted data."
+                return _build_failure_response(
+                    policy_id=policy_id_clean,
+                    portal_url=portal_url_clean,
+                    error_message=fb_err,
+                    run_status=str(fb_out.get("run_status") or "PLAYWRIGHT_FALLBACK_FAILED"),
+                    elapsed_seconds=elapsed_seconds,
+                    is_measured_live_run=True,
+                    raw_result=fb_out,
+                )
+
+            # Reuse the exact same post-extraction validation & 11-check audit pipeline!
+            result = fb_out["extracted"]
+            policy_found = bool(result.get("policy_found", False))
+            extracted_policy_id = result.get("extracted_policy_id")
+            policy_status = result.get("policy_status")
+            patient_name = result.get("patient_name")
+            insurer_name = result.get("insurer_name")
+            room_rent_limit = result.get("room_rent_limit")
+            copay_val = result.get("copay_percentage") or result.get("co_payment")
+            document_uploaded = result.get("document_uploaded")
+            current_portal_step = result.get("current_portal_step")
+            staged_diagnosis = result.get("staged_diagnosis")
+            staged_estimated_cost = result.get("staged_estimated_cost")
+            staged_room_category = result.get("staged_room_category")
+            stopped_at_review = bool(result.get("stopped_at_review", False))
+            submitted_raw = result.get("submitted_or_receipt_visible")
+            access_blocked = bool(result.get("access_or_auth_blocked", False))
+            notes = result.get("notes")
+            fields_prepared = result.get("fields_prepared")
+            if not isinstance(fields_prepared, list):
+                fields_prepared = []
+        else:
+            return {
+                "success": False,
+                "run_status": "ACCESS_OR_AUTH_BLOCKED",
+                "policy_id": policy_id_clean,
+                "extracted_policy_id": extracted_policy_id,
+                "portal_url": portal_url_clean,
+                "manual_fallback_url": portal_url_clean,
+                "elapsed_seconds": elapsed_seconds,
+                "timing": timing_meta,
+                "policy_found": False,
+                "patient_name": None,
+                "insurer_name": None,
+                "policy_status": None,
+                "room_rent_limit": None,
+                "copay_percentage": None,
+                "co_payment": None,
+                "fields_prepared": [],
+                "document_uploaded": None,
+                "current_portal_step": current_portal_step,
+                "staged_diagnosis": None,
+                "staged_estimated_cost": None,
+                "staged_room_category": None,
+                "form_prepared": False,
+                "stopped_at_review": False,
+                "submitted": False,
+                "submission_safeguard_verified": False,
+                "field_accuracy": {
+                    "verified": False,
+                    "fixture_source": "none",
+                    "total_checks": 1,
+                    "passed_count": 0,
+                    "mismatch_count": 0,
+                    "not_verified_count": 1,
+                    "checks": [
+                        {
+                            "field": "portal_access",
+                            "label": "Portal Access & Auth Check",
+                            "expected": "Open sandbox portal without login/CAPTCHA barrier",
+                            "actual": notes or "Access or authentication barrier detected",
+                            "status": "NOT VERIFIED",
+                        }
+                    ],
+                    "matched_checks": [],
+                    "policy_discrepancies": [],
+                    "staging_discrepancies": [],
+                    "discrepancies": ["Portal access or authentication barrier detected."],
+                },
+                "notes": notes,
+                "error": (
+                    "Portal requires authentication, CAPTCHA, or restricted access. "
+                    "MedVerify never bypasses access controls; enable the optional local headed-Chromium "
+                    "fallback or use the manual portal link."
+                ),
+                "raw_result": result,
+            }
 
     # Safety Gate 0: Check for direct or contradictory submission evidence
     contradictory_sub, contradiction_reason = _has_contradictory_submission_evidence(result)
@@ -1461,6 +1591,9 @@ def verify_policy(
     return {
         "success": True,
         "run_status": status_name,
+        "fallback_used": fallback_used,
+        "paused_for_human_check": paused_for_human_check,
+        "human_check_status_history": human_check_status_history,
         "policy_id": policy_id_clean,
         "extracted_policy_id": extracted_policy_id,
         "portal_url": portal_url_clean,

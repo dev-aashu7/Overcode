@@ -77,6 +77,7 @@
   const roomCategorySelect = document.getElementById("room-category-select");
   const sampleDocSelect = document.getElementById("sample-doc-select");
   const portalUrlInput = document.getElementById("portal-url-input");
+  const playwrightFallbackCheckbox = document.getElementById("playwright-fallback-checkbox");
   const verifyForm = document.getElementById("verify-form");
   const verifySubmitBtn = document.getElementById("verify-submit-btn");
   const verifyBtnText = document.getElementById("verify-btn-text");
@@ -685,6 +686,47 @@
     if (rawJsonPre) rawJsonPre.textContent = "Awaiting verification run...";
   }
 
+  function renderWaitingForHumanCheck(detailMessage) {
+    const modeBadge = document.getElementById("result-mode-badge");
+    const banner = document.getElementById("ws-status-banner");
+    const chipStatus = document.getElementById("chip-status");
+    const valStatus = document.getElementById("val-status");
+    const subStatus = document.getElementById("sub-status");
+    const evPortalStep = document.getElementById("ev-portal-step");
+    const tlStep1 = document.getElementById("tl-step-1");
+    const tlBadge1 = document.getElementById("tl-badge-1");
+    const tlDesc1 = document.getElementById("tl-desc-1");
+
+    if (modeBadge) modeBadge.textContent = "02 / 03 · Waiting for human check";
+    if (banner) {
+      banner.className = "ws-status-banner tone-warn";
+      banner.innerHTML =
+        "<strong>Waiting for human check:</strong> " +
+        (detailMessage ||
+          "Local headed Chromium is paused at a verification/CAPTCHA challenge. Please complete the check in the visible browser window; MedVerify will resume automatically when the 'Policy Search' heading appears (timeout: 5m).");
+    }
+    if (valStatus) {
+      valStatus.textContent = "Waiting for human check";
+      valStatus.className = "vital-reading";
+    }
+    if (chipStatus) {
+      chipStatus.textContent = "HUMAN CHECK";
+      chipStatus.className = "vital-chip chip-warn";
+    }
+    if (subStatus) {
+      subStatus.textContent = "Paused in headed Chromium window";
+    }
+    if (evPortalStep) {
+      evPortalStep.textContent = "Waiting for human check";
+    }
+    if (tlStep1) tlStep1.className = "ws-tl-item warn";
+    if (tlBadge1) tlBadge1.textContent = "Waiting for human check";
+    if (tlDesc1) {
+      tlDesc1.textContent =
+        "Paused for human verification in headed Chromium. Resumes automatically when 'Policy Search' appears.";
+    }
+  }
+
   function renderAuditTable(acc) {
     const auditSummaryBadge = document.getElementById("audit-summary-badge");
     const auditTableBody = document.getElementById("audit-table-body");
@@ -1235,24 +1277,51 @@
 
     const banner = document.getElementById("ws-status-banner");
     const evPrepTime = document.getElementById("ev-prep-time");
+    let isPausedForHuman = false;
     if (liveTimerInterval) clearInterval(liveTimerInterval);
-    liveTimerInterval = setInterval(function () {
+    liveTimerInterval = setInterval(async function () {
       const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
-      if (verifyBtnText) {
-        verifyBtnText.textContent = "Running TinyFish Cloud Agent (" + elapsed + "s)...";
+      try {
+        const stRes = await fetch("/api/status");
+        if (stRes && stRes.ok) {
+          const stJson = await stRes.json();
+          if (
+            stJson &&
+            (stJson.state === "WAITING_FOR_HUMAN_CHECK" || stJson.status === "Waiting for human check")
+          ) {
+            isPausedForHuman = true;
+            renderWaitingForHumanCheck();
+            if (verifyBtnText) {
+              verifyBtnText.textContent = "Waiting for human check (" + elapsed + "s)...";
+            }
+            if (evPrepTime) {
+              evPrepTime.innerHTML = elapsed + "s <small>(Waiting for human check)</small>";
+            }
+            return;
+          }
+          isPausedForHuman = false;
+        }
+      } catch (_) {
+        // Ignore transient status poll errors
       }
-      if (evPrepTime) {
-        evPrepTime.innerHTML = elapsed + "s <small>(in progress...)</small>";
-      }
-      if (banner) {
-        banner.innerHTML =
-          "<strong>TinyFish Cloud Browser Active (" +
-          elapsed +
-          "s):</strong> Navigating <code>" +
-          (payload.portal_url || DEFAULT_PORTAL_URL) +
-          "</code> for policy <code>" +
-          (payload.policy_id || "—") +
-          "</code> (Policy Search &rarr; Details &rarr; Pre-Auth Form &rarr; Document Upload &rarr; Review &amp; Verify)...";
+
+      if (!isPausedForHuman) {
+        if (verifyBtnText) {
+          verifyBtnText.textContent = "Running TinyFish Cloud Agent (" + elapsed + "s)...";
+        }
+        if (evPrepTime) {
+          evPrepTime.innerHTML = elapsed + "s <small>(in progress...)</small>";
+        }
+        if (banner) {
+          banner.innerHTML =
+            "<strong>TinyFish Cloud Browser Active (" +
+            elapsed +
+            "s):</strong> Navigating <code>" +
+            (payload.portal_url || DEFAULT_PORTAL_URL) +
+            "</code> for policy <code>" +
+            (payload.policy_id || "—") +
+            "</code> (Policy Search &rarr; Details &rarr; Pre-Auth Form &rarr; Document Upload &rarr; Review &amp; Verify)...";
+        }
       }
     }, 500);
 
@@ -1328,7 +1397,8 @@
         estimated_cost: costInput ? Number(costInput.value) : 0,
         room_category: roomCategorySelect ? roomCategorySelect.value : "Semi-Private",
         use_sample_document: sampleDocSelect ? sampleDocSelect.value === "true" : true,
-        portal_url: portalUrlInput ? portalUrlInput.value : DEFAULT_PORTAL_URL
+        portal_url: portalUrlInput ? portalUrlInput.value : DEFAULT_PORTAL_URL,
+        enable_playwright_fallback: playwrightFallbackCheckbox ? Boolean(playwrightFallbackCheckbox.checked) : false
       });
     });
   }
@@ -1356,6 +1426,7 @@
   if (typeof window !== "undefined") {
     window.MedVerifyWorkspace = {
       resetWorkspaceDisplay: resetWorkspaceDisplay,
+      renderWaitingForHumanCheck: renderWaitingForHumanCheck,
       renderVerificationResult: renderVerificationResult,
       setExecutionMode: setExecutionMode,
       SIMULATED_SCENARIOS: SIMULATED_SCENARIOS

@@ -44,6 +44,19 @@ NON_LIVE_STATUSES = {
     "INVALID_JSON",
 }
 
+LIVE_RUN_STATUS: dict = {
+    "state": "IDLE",
+    "status": "Idle",
+    "updated_at_utc": None,
+}
+
+
+def _update_live_run_status(state_code: str, status_text: str) -> None:
+    """Update shared runtime status so /api/status can report 'Waiting for human check'."""
+    LIVE_RUN_STATUS["state"] = state_code
+    LIVE_RUN_STATUS["status"] = status_text
+    LIVE_RUN_STATUS["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
+
 
 def _compute_live_timing_stats() -> dict:
     """
@@ -166,8 +179,13 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
                     "submission_lock": True,
                     "default_portal_url": os.getenv("MOCK_PORTAL_URL", DEFAULT_PORTAL_URL),
                     "timing_stats": _compute_live_timing_stats(),
+                    "live_run_status": dict(LIVE_RUN_STATUS),
                 },
             )
+            return
+
+        if route == "/api/status":
+            self._send_json(200, dict(LIVE_RUN_STATUS))
             return
 
         if route in ("/", "/index.html"):
@@ -205,16 +223,23 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        result = verify_policy(
-            policy_id=data.get("policy_id", ""),
-            diagnosis=data.get("diagnosis", ""),
-            estimated_cost=data.get("estimated_cost", ""),
-            portal_url=data.get("portal_url", DEFAULT_PORTAL_URL),
-            room_category=data.get("room_category", "Semi-Private"),
-            hospital_name=data.get("hospital_name", "Apollo Care Superspecialty Hospital"),
-            doctor_name=data.get("doctor_name", "Dr. Rajesh K. Mehta"),
-            use_sample_document=bool(data.get("use_sample_document", True)),
-        )
+        _update_live_run_status("RUNNING_TINYFISH", "Running TinyFish Cloud Agent")
+        try:
+            result = verify_policy(
+                policy_id=data.get("policy_id", ""),
+                diagnosis=data.get("diagnosis", ""),
+                estimated_cost=data.get("estimated_cost", ""),
+                portal_url=data.get("portal_url", DEFAULT_PORTAL_URL),
+                room_category=data.get("room_category", "Semi-Private"),
+                hospital_name=data.get("hospital_name", "Apollo Care Superspecialty Hospital"),
+                doctor_name=data.get("doctor_name", "Dr. Rajesh K. Mehta"),
+                use_sample_document=bool(data.get("use_sample_document", True)),
+                enable_playwright_fallback=bool(data.get("enable_playwright_fallback", False)),
+                human_check_timeout_seconds=float(data.get("human_check_timeout_seconds", 300.0)),
+                status_callback=_update_live_run_status,
+            )
+        finally:
+            _update_live_run_status("IDLE", "Idle")
         _append_run_log(result)
         stats = _compute_live_timing_stats()
         if isinstance(result.get("timing"), dict):

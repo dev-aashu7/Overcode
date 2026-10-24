@@ -350,6 +350,15 @@ const t6Ok = (
 );
 results.push(['24. Transition 6: Simulated demo -> Live mode wipes all simulated preview data', t6Ok, `status=${{elements['val-status'].textContent}}, audit=${{elements['audit-summary-badge'].textContent}}`]);
 
+// 7. Dashboard 'Waiting for human check' status while paused
+ws.renderWaitingForHumanCheck();
+const waitOk = (
+  elements['val-status'].textContent === 'Waiting for human check' &&
+  elements['ev-portal-step'].textContent === 'Waiting for human check' &&
+  elements['ws-status-banner'].innerHTML.includes('Waiting for human check')
+);
+results.push(['25. Dashboard displays status "Waiting for human check" while paused', waitOk, `val-status=${{elements['val-status'].textContent}}, step=${{elements['ev-portal-step'].textContent}}`]);
+
 console.log(JSON.stringify(results));
 """
     proc = subprocess.run(
@@ -362,6 +371,58 @@ console.log(JSON.stringify(results));
     )
     parsed = json.loads(proc.stdout.strip().splitlines()[-1])
     return [(item[0], bool(item[1]), str(item[2])) for item in parsed]
+
+
+class StubPlaywrightPage:
+    """
+    Stubbed Playwright page for testing the optional local headed-Chromium fallback:
+    - mode == 'no_check': 'Policy Search' heading is immediately visible.
+    - mode == 'check_then_solved': Initially displays a CAPTCHA/verification check;
+      after solve_after_polls wait cycles (simulating a human solving the check in the
+      visible browser window), 'Policy Search' heading appears and workflow resumes.
+    - mode == 'timeout': Remains on the verification check until timeout expires.
+    """
+
+    def __init__(self, mode: str = "no_check", solve_after_polls: int = 2) -> None:
+        self.mode = mode
+        self.solve_after_polls = solve_after_polls
+        self.poll_count = 0
+        self.submit_clicked = False
+
+    def get_visible_text(self) -> str:
+        if self.mode == "no_check":
+            return "ApexCare Health TPA — Policy Search"
+        if self.mode == "check_then_solved":
+            if self.poll_count < self.solve_after_polls:
+                return "Security Check — Verify you are human (CAPTCHA challenge)"
+            return "ApexCare Health TPA — Policy Search"
+        return "Security Check — Verify you are human (CAPTCHA challenge)"
+
+    def wait_for_timeout(self, ms: int) -> None:
+        self.poll_count += 1
+
+    def execute_portal_steps(
+        self,
+        policy_id: str,
+        diagnosis: str,
+        estimated_cost: float | int | str,
+        room_category: str,
+        hospital_name: str,
+        doctor_name: str,
+        use_sample_document: bool,
+    ) -> dict:
+        # Must only execute after post-check element ('Policy Search') is visible
+        assert "policy search" in self.get_visible_text().lower()
+        base = dict(MOCK_PORTAL_RESPONSES.get(policy_id.upper(), MOCK_PORTAL_RESPONSES["POL-100245"]))
+        base["extracted_policy_id"] = policy_id.upper()
+        base["staged_diagnosis"] = str(diagnosis)
+        base["staged_estimated_cost"] = f"₹{int(float(estimated_cost)):,}"
+        base["staged_room_category"] = str(room_category)
+        base["document_uploaded"] = "sample_clinical_document.pdf" if use_sample_document else ""
+        base["current_portal_step"] = "Review & Verify"
+        base["stopped_at_review"] = True
+        base["submitted_or_receipt_visible"] = False
+        return base
 
 
 def run_local_checks() -> None:
@@ -742,7 +803,106 @@ def run_local_checks() -> None:
         for t_title, t_ok, t_detail in transition_results:
             record(t_title, t_ok, t_detail)
 
-        # Test 25: 20-Run Mocked Reproducibility Harness (0 credits)
+        # Test 26: Playwright Fallback (Stubbed Page: No Check) -> Completes 11/11 Audit & Halts at Review
+        stub_no_check = StubPlaywrightPage(mode="no_check")
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            fb_no_check_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                enable_playwright_fallback=True,
+                playwright_stub_page=stub_no_check,
+            )
+        fb_nc_acc = fb_no_check_res.get("field_accuracy") or {}
+        fb_nc_ok = (
+            fb_no_check_res.get("success") is True
+            and fb_no_check_res.get("fallback_used") == "playwright_headed_chromium"
+            and fb_no_check_res.get("paused_for_human_check") is False
+            and fb_no_check_res.get("stopped_at_review") is True
+            and fb_no_check_res.get("submitted") is False
+            and fb_nc_acc.get("verified") is True
+            and fb_nc_acc.get("passed_count") == 11
+        )
+        record(
+            "26. Playwright Fallback (Stubbed Page — No Check): Reuses inputs, 11/11 Audit PASS, stops at Review",
+            fb_nc_ok,
+            f"success: {fb_no_check_res.get('success')} | paused: {fb_no_check_res.get('paused_for_human_check')} | checks: {fb_nc_acc.get('passed_count')}/11",
+        )
+
+        # Test 27: Playwright Fallback (Stubbed Page: Check Detected -> 'Waiting for human check' -> Solved by Human)
+        stub_check_solved = StubPlaywrightPage(mode="check_then_solved", solve_after_polls=2)
+        observed_statuses: list[tuple[str, str]] = []
+
+        def _capture_status(code: str, text: str) -> None:
+            observed_statuses.append((code, text))
+
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            fb_solved_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                enable_playwright_fallback=True,
+                human_check_timeout_seconds=10.0,
+                poll_interval_seconds=0.01,
+                status_callback=_capture_status,
+                playwright_stub_page=stub_check_solved,
+            )
+        fb_sol_acc = fb_solved_res.get("field_accuracy") or {}
+        fb_sol_ok = (
+            fb_solved_res.get("success") is True
+            and fb_solved_res.get("fallback_used") == "playwright_headed_chromium"
+            and fb_solved_res.get("paused_for_human_check") is True
+            and any(txt == "Waiting for human check" for _, txt in observed_statuses)
+            and stub_check_solved.poll_count == 2
+            and fb_solved_res.get("stopped_at_review") is True
+            and fb_solved_res.get("submitted") is False
+            and fb_sol_acc.get("verified") is True
+            and fb_sol_acc.get("passed_count") == 11
+        )
+        record(
+            "27. Playwright Fallback (Stubbed Page — Check Then Solved): Pauses ('Waiting for human check'), resumes on 'Policy Search', 11/11 PASS",
+            fb_sol_ok,
+            f"paused: {fb_solved_res.get('paused_for_human_check')} | statuses: {[t for _, t in observed_statuses]} | polls: {stub_check_solved.poll_count}",
+        )
+
+        # Test 28: Playwright Fallback (Stubbed Page: Check Expires -> HUMAN_CHECK_TIMEOUT)
+        stub_timeout = StubPlaywrightPage(mode="timeout")
+        timeout_statuses: list[tuple[str, str]] = []
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            fb_timeout_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                enable_playwright_fallback=True,
+                human_check_timeout_seconds=0.05,
+                poll_interval_seconds=0.01,
+                status_callback=lambda c, t: timeout_statuses.append((c, t)),
+                playwright_stub_page=stub_timeout,
+            )
+        fb_to_ok = (
+            fb_timeout_res.get("success") is False
+            and fb_timeout_res.get("run_status") == "HUMAN_CHECK_TIMEOUT"
+            and fb_timeout_res.get("paused_for_human_check") is True
+            and any(txt == "Waiting for human check" for _, txt in timeout_statuses)
+            and fb_timeout_res.get("stopped_at_review") is False
+            and fb_timeout_res.get("submitted") is False
+        )
+        record(
+            "28. Playwright Fallback (Stubbed Page — Timeout): Returns HUMAN_CHECK_TIMEOUT when human check expires",
+            fb_to_ok,
+            f"run_status: {fb_timeout_res.get('run_status')} | error: {fb_timeout_res.get('error')}",
+        )
+
+        # Test 29: 20-Run Mocked Reproducibility Harness (0 credits)
         repro_pids = ["POL-100245", "POL-205118", "POL-309872", "POL-999001", "POL-999999"] * 4
         repro_ok = True
         for pid in repro_pids:
@@ -760,7 +920,7 @@ def run_local_checks() -> None:
                 repro_ok = False
                 break
         record(
-            "25. 20-Run Mocked Reproducibility & Schema-Consistency Harness (20/20 runs)",
+            "29. 20-Run Mocked Reproducibility & Schema-Consistency Harness (20/20 runs)",
             repro_ok,
             "0 auto-submissions, 100% transparent audit consistency across 20 mocked runs.",
         )
