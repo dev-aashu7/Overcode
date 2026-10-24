@@ -620,6 +620,136 @@ html, body {
   color: var(--ink-600);
 }
 
+/* Transparent Field-by-Field Evidence & Safeguard Audit Table */
+.audit-panel {
+  background: #FAF9F6;
+  border: 1px solid var(--hairline-dark);
+  border-radius: 8px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.audit-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--hairline-dark);
+  background: #F3F2EE;
+}
+
+.audit-panel-title {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-900);
+}
+
+.audit-summary-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #EAE9E4;
+  color: var(--ink-600);
+}
+
+.audit-summary-badge.badge-ok {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.audit-summary-badge.badge-warn {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.audit-summary-badge.badge-err {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.audit-table-wrap {
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.audit-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-600);
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--hairline-dark);
+  background: #FAF9F6;
+  position: sticky;
+  top: 0;
+}
+
+.audit-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(20, 20, 19, 0.06);
+  color: var(--ink-900);
+  vertical-align: top;
+  line-height: 1.35;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-field-col {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.audit-empty-cell {
+  color: var(--ink-400);
+  font-style: italic;
+  text-align: center;
+  padding: 14px !important;
+}
+
+.audit-status-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.audit-status-pill.status-pass {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.audit-status-pill.status-mismatch {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.audit-status-pill.status-unverified {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
 /* Live Automation Timeline inside Workspace */
 .ws-timeline-list {
   display: flex;

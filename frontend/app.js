@@ -17,7 +17,8 @@
   let backendHealth = {
     api_key_configured: false,
     environment: "SANDBOX",
-    default_portal_url: DEFAULT_PORTAL_URL
+    default_portal_url: DEFAULT_PORTAL_URL,
+    timing_stats: null
   };
 
   async function checkBackendHealth() {
@@ -45,13 +46,15 @@
       const keyStatus = backendHealth.api_key_configured
         ? "CONFIGURED in Python environment"
         : "NOT SET (set $env:TINYFISH_API_KEY or .env before live cloud runs)";
+      const tStats = backendHealth.timing_stats || {};
       alert(
         "MedVerify Backend Telemetry\n\n" +
           "• Authorized Portal: " + (backendHealth.default_portal_url || DEFAULT_PORTAL_URL) + "\n" +
           "• Environment: SANDBOX (Synthetic Data Only)\n" +
           "• TINYFISH_API_KEY: " + keyStatus + "\n" +
           "• Submission Lock: ENFORCED (submitted = False)\n" +
-          "• Cross-Check Engine: AUTHORITATIVE_PORTAL_FIXTURES + Staged Input Audit"
+          "• Live Timing Telemetry: " + (tStats.observation_label || "No live runs recorded yet") + "\n" +
+          "• Cross-Check Engine: Transparent Field-by-Field Evidence Audit"
       );
     });
   }
@@ -82,6 +85,56 @@
   let currentMode = "live"; // "live" | "simulated"
   let liveTimerInterval = null;
 
+  function buildActiveChecks(pid, name, roomLimit, copay, diag, costInputStr, stagedCostStr, roomCat, stagedRoomCat, docName, stopped, submitted) {
+    const costMatch = String(costInputStr).replace(/[^\d]/g, "") === String(stagedCostStr).replace(/[^\d]/g, "");
+    const roomCatMatch = String(roomCat).toLowerCase() === String(stagedRoomCat).toLowerCase();
+    return [
+      { field: "policy_id", label: "Policy ID", expected: pid, actual: pid, status: "PASS" },
+      { field: "patient_name", label: "Patient Name", expected: name, actual: name, status: "PASS" },
+      { field: "policy_status", label: "Policy Status", expected: "Active", actual: "Active", status: "PASS" },
+      { field: "room_rent_limit", label: "Room-Rent Limit", expected: roomLimit, actual: roomLimit, status: "PASS" },
+      { field: "co_payment", label: "Co-Payment", expected: copay, actual: copay, status: "PASS" },
+      { field: "diagnosis", label: "Diagnosis (Review & Verify)", expected: diag, actual: diag, status: "PASS" },
+      {
+        field: "estimated_cost",
+        label: "Estimated Cost (Review & Verify)",
+        expected: String(costInputStr),
+        actual: stagedCostStr,
+        status: costMatch ? "PASS" : "MISMATCH"
+      },
+      {
+        field: "room_category",
+        label: "Room Category (Review & Verify)",
+        expected: roomCat,
+        actual: stagedRoomCat,
+        status: roomCatMatch ? "PASS" : "MISMATCH"
+      },
+      {
+        field: "supporting_document",
+        label: "Supporting Clinical Document",
+        expected: "sample_clinical_document.pdf",
+        actual: docName || "Not staged",
+        status: docName === "sample_clinical_document.pdf" ? "PASS" : "NOT VERIFIED"
+      },
+      {
+        field: "review_screen_arrival",
+        label: "Review-Screen Arrival",
+        expected: "Review & Verify (stopped_at_review = true)",
+        actual: stopped ? "Review & Verify (stopped_at_review = true)" : "Not reached (stopped_at_review = false)",
+        status: stopped ? "PASS" : "NOT VERIFIED"
+      },
+      {
+        field: "submission_safeguard",
+        label: "Submission Status (Safeguard)",
+        expected: "Not Submitted (submitted_or_receipt_visible = false, stopped_at_review = true)",
+        actual: !submitted && stopped
+          ? "Not Submitted (submitted_or_receipt_visible = false, halted at Review & Verify)"
+          : "Unverified or violated safeguard state",
+        status: !submitted && stopped ? "PASS" : (submitted ? "MISMATCH" : "NOT VERIFIED")
+      }
+    ];
+  }
+
   // Confirmed Portal Scenarios matching https://medverify-tpa-portal.vercel.app/
   const SIMULATED_SCENARIOS = {
     pol100245: {
@@ -89,9 +142,16 @@
       success: true,
       run_status: "SIMULATED_DEMO",
       policy_id: "POL-100245",
+      extracted_policy_id: "POL-100245",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: true,
       patient_name: "Rahul Sharma",
       insurer_name: "CareShield General Insurance — Optima Health Platinum Individual",
@@ -116,19 +176,29 @@
       form_prepared: true,
       stopped_at_review: true,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: true,
         fixture_source: "AUTHORITATIVE_PORTAL_FIXTURES[POL-100245]",
-        matched_checks: [
-          "patient_name == 'Rahul Sharma'",
-          "policy_status == 'Active'",
-          "room_rent_limit matches fixture",
-          "copay_percentage matches fixture",
-          "staged_diagnosis matches input",
-          "staged_estimated_cost matches input",
-          "staged_room_category matches input",
-          "document_uploaded verified ('sample_clinical_document.pdf')"
-        ],
+        total_checks: 11,
+        passed_count: 11,
+        mismatch_count: 0,
+        not_verified_count: 0,
+        checks: buildActiveChecks(
+          "POL-100245",
+          "Rahul Sharma",
+          "₹5,000 / day (Single Standard AC Room)",
+          "0% (Nil)",
+          "Acute Cholecystitis / ICD-10 K81.0",
+          "85000",
+          "₹85,000",
+          "Semi-Private",
+          "Semi-Private",
+          "sample_clinical_document.pdf",
+          true,
+          false
+        ),
+        matched_checks: ["11/11 checks passed"],
         policy_discrepancies: [],
         staging_discrepancies: [],
         discrepancies: []
@@ -141,9 +211,16 @@
       success: true,
       run_status: "SIMULATED_DEMO",
       policy_id: "POL-205118",
+      extracted_policy_id: "POL-205118",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: true,
       patient_name: "Sunita Verma",
       insurer_name: "Heritage Life & Health Assurance — Senior Citizen Comprehensive Health",
@@ -168,19 +245,29 @@
       form_prepared: true,
       stopped_at_review: true,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: true,
         fixture_source: "AUTHORITATIVE_PORTAL_FIXTURES[POL-205118]",
-        matched_checks: [
-          "patient_name == 'Sunita Verma'",
-          "policy_status == 'Active'",
-          "room_rent_limit matches fixture",
-          "copay_percentage matches fixture",
-          "staged_diagnosis matches input",
-          "staged_estimated_cost matches input",
-          "staged_room_category matches input",
-          "document_uploaded verified ('sample_clinical_document.pdf')"
-        ],
+        total_checks: 11,
+        passed_count: 11,
+        mismatch_count: 0,
+        not_verified_count: 0,
+        checks: buildActiveChecks(
+          "POL-205118",
+          "Sunita Verma",
+          "Single Private AC Room (up to 1% of Sum Insured)",
+          "10% Co-Pay applicable on total admitted claim amount",
+          "Senile Nuclear Cataract / ICD-10 H25.1",
+          "62000",
+          "₹62,000",
+          "Semi-Private",
+          "Semi-Private",
+          "sample_clinical_document.pdf",
+          true,
+          false
+        ),
+        matched_checks: ["11/11 checks passed"],
         policy_discrepancies: [],
         staging_discrepancies: [],
         discrepancies: []
@@ -193,9 +280,16 @@
       success: true,
       run_status: "SIMULATED_DEMO",
       policy_id: "POL-309872",
+      extracted_policy_id: "POL-309872",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: true,
       patient_name: "Priya Nair",
       insurer_name: "Universal Alliance Health — Corporate Group Mediclaim (GMC)",
@@ -220,19 +314,29 @@
       form_prepared: true,
       stopped_at_review: true,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: true,
         fixture_source: "AUTHORITATIVE_PORTAL_FIXTURES[POL-309872]",
-        matched_checks: [
-          "patient_name == 'Priya Nair'",
-          "policy_status == 'Active'",
-          "room_rent_limit matches fixture",
-          "copay_percentage matches fixture",
-          "staged_diagnosis matches input",
-          "staged_estimated_cost matches input",
-          "staged_room_category matches input",
-          "document_uploaded verified ('sample_clinical_document.pdf')"
-        ],
+        total_checks: 11,
+        passed_count: 11,
+        mismatch_count: 0,
+        not_verified_count: 0,
+        checks: buildActiveChecks(
+          "POL-309872",
+          "Priya Nair",
+          "No Capping / Actuals (Any category up to Deluxe)",
+          "0% (Waived under Corporate GMC)",
+          "Acute Appendicitis / ICD-10 K35.80",
+          "95000",
+          "₹95,000",
+          "Semi-Private",
+          "Semi-Private",
+          "sample_clinical_document.pdf",
+          true,
+          false
+        ),
+        matched_checks: ["11/11 checks passed"],
         policy_discrepancies: [],
         staging_discrepancies: [],
         discrepancies: []
@@ -245,9 +349,16 @@
       success: false,
       run_status: "POLICY_LAPSED",
       policy_id: "POL-999001",
+      extracted_policy_id: "POL-999001",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: true,
       patient_name: "Vikram Malhotra",
       insurer_name: "SecureLife Mediclaim Co. — Basic Hospitalization Floater",
@@ -264,15 +375,36 @@
       form_prepared: false,
       stopped_at_review: false,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: true,
         fixture_source: "AUTHORITATIVE_PORTAL_FIXTURES[POL-999001]",
-        matched_checks: [
-          "patient_name == 'Vikram Malhotra'",
-          "policy_status == 'Lapsed'",
-          "room_rent_limit matches fixture",
-          "copay_percentage matches fixture"
+        total_checks: 7,
+        passed_count: 7,
+        mismatch_count: 0,
+        not_verified_count: 0,
+        checks: [
+          { field: "policy_id", label: "Policy ID", expected: "POL-999001", actual: "POL-999001", status: "PASS" },
+          { field: "patient_name", label: "Patient Name", expected: "Vikram Malhotra", actual: "Vikram Malhotra", status: "PASS" },
+          { field: "policy_status", label: "Policy Status", expected: "Lapsed", actual: "Lapsed", status: "PASS" },
+          { field: "room_rent_limit", label: "Room-Rent Limit", expected: "₹3,000 / day", actual: "₹3,000 / day", status: "PASS" },
+          { field: "co_payment", label: "Co-Payment", expected: "20%", actual: "20%", status: "PASS" },
+          {
+            field: "preauth_halt_on_lapsed",
+            label: "Lapsed-Policy Pre-Auth Halt",
+            expected: "Policy Details (fields_prepared = [], stopped_at_review = false)",
+            actual: "Policy Details (fields_prepared = 0, stopped_at_review = false)",
+            status: "PASS"
+          },
+          {
+            field: "submission_safeguard",
+            label: "Submission Status (Safeguard)",
+            expected: "Not Submitted (submitted_or_receipt_visible = false)",
+            actual: "Not Submitted (submitted_or_receipt_visible = false)",
+            status: "PASS"
+          }
         ],
+        matched_checks: ["7/7 checks passed"],
         policy_discrepancies: [],
         staging_discrepancies: [],
         discrepancies: []
@@ -285,9 +417,16 @@
       success: false,
       run_status: "NOT_FOUND",
       policy_id: "POL-999999",
+      extracted_policy_id: "",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: false,
       patient_name: null,
       insurer_name: null,
@@ -304,9 +443,37 @@
       form_prepared: false,
       stopped_at_review: false,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: true,
         fixture_source: "unknown_policy_rule",
+        total_checks: 3,
+        passed_count: 3,
+        mismatch_count: 0,
+        not_verified_count: 0,
+        checks: [
+          {
+            field: "policy_id",
+            label: "Policy ID Lookup",
+            expected: "POL-999999 (Unlisted / Unknown Policy ID)",
+            actual: "Rejected on Policy Search (policy_found = false)",
+            status: "PASS"
+          },
+          {
+            field: "policy_status",
+            label: "Policy Status",
+            expected: "Not Found",
+            actual: "Not Found",
+            status: "PASS"
+          },
+          {
+            field: "submission_safeguard",
+            label: "Submission Status (Safeguard)",
+            expected: "Not Submitted (submitted_or_receipt_visible = false)",
+            actual: "Not Submitted (submitted_or_receipt_visible = false)",
+            status: "PASS"
+          }
+        ],
         matched_checks: ["unknown_policy_correctly_rejected"],
         policy_discrepancies: [],
         staging_discrepancies: [],
@@ -320,9 +487,16 @@
       success: false,
       run_status: "FIELD_MISMATCH",
       policy_id: "POL-100245",
+      extracted_policy_id: "POL-100245",
       portal_url: DEFAULT_PORTAL_URL,
       manual_fallback_url: DEFAULT_PORTAL_URL,
       elapsed_seconds: 0.0,
+      timing: {
+        elapsed_seconds: 0.0,
+        is_measured_live_run: false,
+        observation_label: "Simulated preview (0 credits — not measured)",
+        manual_baseline_note: "No manual baseline measured in this environment"
+      },
       policy_found: true,
       patient_name: "Rahul Sharma",
       insurer_name: "CareShield General Insurance",
@@ -339,15 +513,29 @@
       form_prepared: true,
       stopped_at_review: true,
       submitted: false,
+      submission_safeguard_verified: true,
       field_accuracy: {
         verified: false,
         fixture_source: "AUTHORITATIVE_PORTAL_FIXTURES[POL-100245]",
-        matched_checks: [
-          "patient_name == 'Rahul Sharma'",
-          "policy_status == 'Active'",
-          "room_rent_limit matches fixture",
-          "copay_percentage matches fixture"
-        ],
+        total_checks: 11,
+        passed_count: 9,
+        mismatch_count: 2,
+        not_verified_count: 0,
+        checks: buildActiveChecks(
+          "POL-100245",
+          "Rahul Sharma",
+          "₹5,000 / day (Single Standard AC Room)",
+          "0% (Nil)",
+          "Acute Cholecystitis / ICD-10 K81.0",
+          "85000",
+          "₹12,000",
+          "Semi-Private",
+          "General",
+          "sample_clinical_document.pdf",
+          true,
+          false
+        ),
+        matched_checks: ["9/11 checks passed"],
         policy_discrepancies: [],
         staging_discrepancies: [
           "staged_estimated_cost mismatch: submitted '85000', review screen showed '₹12,000'",
@@ -389,14 +577,19 @@
 
     const chipRoom = document.getElementById("chip-room");
     const valRoom = document.getElementById("val-room");
+    const subRoom = document.getElementById("sub-room");
 
     const chipCopay = document.getElementById("chip-copay");
     const valCopay = document.getElementById("val-copay");
+    const subCopay = document.getElementById("sub-copay");
 
     const evPortalStep = document.getElementById("ev-portal-step");
     const evStagedSummary = document.getElementById("ev-staged-summary");
     const evAccuracy = document.getElementById("ev-accuracy");
     const evPrepTime = document.getElementById("ev-prep-time");
+
+    const auditSummaryBadge = document.getElementById("audit-summary-badge");
+    const auditTableBody = document.getElementById("audit-table-body");
 
     const tlStep1 = document.getElementById("tl-step-1");
     const tlBadge1 = document.getElementById("tl-badge-1");
@@ -441,6 +634,7 @@
       chipRoom.textContent = "IDLE";
       chipRoom.className = "vital-chip";
     }
+    if (subRoom) subRoom.textContent = "Daily inpatient cap";
 
     if (valCopay) {
       valCopay.textContent = "—";
@@ -450,11 +644,27 @@
       chipCopay.textContent = "IDLE";
       chipCopay.className = "vital-chip";
     }
+    if (subCopay) subCopay.textContent = "Policyholder share %";
 
     if (evPortalStep) evPortalStep.textContent = "—";
     if (evStagedSummary) evStagedSummary.textContent = "—";
-    if (evAccuracy) evAccuracy.textContent = "—";
-    if (evPrepTime) evPrepTime.innerHTML = "&mdash; <small>(vs ~4–6m manual)</small>";
+    if (evAccuracy) {
+      evAccuracy.textContent = "—";
+      evAccuracy.style.color = "";
+    }
+    if (evPrepTime) {
+      evPrepTime.innerHTML = "&mdash; <small>(Unmeasured)</small>";
+      evPrepTime.title = "Measured from backend verify_policy() start to TinyFish response & audit completion";
+    }
+
+    if (auditSummaryBadge) {
+      auditSummaryBadge.textContent = "0 CHECKS RUN";
+      auditSummaryBadge.className = "audit-summary-badge";
+    }
+    if (auditTableBody) {
+      auditTableBody.innerHTML =
+        '<tr><td colspan="4" class="audit-empty-cell">No field-accuracy checks executed yet. Run live verification or preview a scenario to inspect field-by-field evidence.</td></tr>';
+    }
 
     [tlStep1, tlStep2, tlStep3].forEach(function (el) {
       if (el) el.className = "ws-tl-item";
@@ -468,11 +678,117 @@
     if (tlDesc3) tlDesc3.textContent = "Reads back staged values on Review & Verify, cross-checks against case inputs, and halts without submitting.";
 
     if (gateStopped) gateStopped.textContent = "—";
-    if (gateSubmitted) gateSubmitted.textContent = "false (Locked)";
+    if (gateSubmitted) {
+      gateSubmitted.textContent = "false (Locked)";
+      gateSubmitted.style.color = "#10B981";
+    }
     if (rawJsonPre) rawJsonPre.textContent = "Awaiting verification run...";
   }
 
+  function renderAuditTable(acc) {
+    const auditSummaryBadge = document.getElementById("audit-summary-badge");
+    const auditTableBody = document.getElementById("audit-table-body");
+    const evAccuracy = document.getElementById("ev-accuracy");
+
+    const checks = acc && Array.isArray(acc.checks) ? acc.checks : [];
+    const total = checks.length;
+    const passCount = checks.filter(function (c) { return c.status === "PASS"; }).length;
+    const mismatchCount = checks.filter(function (c) { return c.status === "MISMATCH"; }).length;
+    const notVerifiedCount = checks.filter(function (c) { return c.status === "NOT VERIFIED"; }).length;
+
+    if (auditSummaryBadge) {
+      if (total === 0) {
+        auditSummaryBadge.textContent = "0 CHECKS RUN · NOT VERIFIED";
+        auditSummaryBadge.className = "audit-summary-badge badge-warn";
+      } else {
+        auditSummaryBadge.textContent =
+          passCount + " / " + total + " PASS · " +
+          mismatchCount + " MISMATCH · " +
+          notVerifiedCount + " NOT VERIFIED";
+        if (mismatchCount > 0) {
+          auditSummaryBadge.className = "audit-summary-badge badge-err";
+        } else if (notVerifiedCount > 0) {
+          auditSummaryBadge.className = "audit-summary-badge badge-warn";
+        } else {
+          auditSummaryBadge.className = "audit-summary-badge badge-ok";
+        }
+      }
+    }
+
+    if (evAccuracy) {
+      if (total === 0) {
+        evAccuracy.textContent = "NOT VERIFIED (0 checks)";
+        evAccuracy.style.color = "#D97706";
+      } else if (mismatchCount > 0) {
+        evAccuracy.textContent = "MISMATCH (" + mismatchCount + " failed, " + passCount + "/" + total + " pass)";
+        evAccuracy.style.color = "#DC2626";
+      } else if (notVerifiedCount > 0) {
+        evAccuracy.textContent = "NOT VERIFIED (" + notVerifiedCount + " unverified, " + passCount + "/" + total + " pass)";
+        evAccuracy.style.color = "#D97706";
+      } else {
+        evAccuracy.textContent = "PASS (" + passCount + "/" + total + " checks)";
+        evAccuracy.style.color = "#065F46";
+      }
+    }
+
+    if (auditTableBody) {
+      auditTableBody.innerHTML = "";
+      if (total === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 4;
+        td.className = "audit-empty-cell";
+        td.textContent =
+          (acc && acc.discrepancies && acc.discrepancies.length > 0)
+            ? "No portal field checks executed (" + acc.discrepancies.join("; ") + ")."
+            : "No field-accuracy checks executed for this run.";
+        tr.appendChild(td);
+        auditTableBody.appendChild(tr);
+        return;
+      }
+
+      checks.forEach(function (chk) {
+        const tr = document.createElement("tr");
+
+        const tdField = document.createElement("td");
+        tdField.className = "audit-field-col";
+        tdField.textContent = chk.label || chk.field || "—";
+
+        const tdExpected = document.createElement("td");
+        tdExpected.textContent = chk.expected != null ? String(chk.expected) : "—";
+
+        const tdActual = document.createElement("td");
+        tdActual.textContent = chk.actual != null ? String(chk.actual) : "—";
+
+        const tdStatus = document.createElement("td");
+        const pill = document.createElement("span");
+        const st = String(chk.status || "NOT VERIFIED").toUpperCase();
+        pill.textContent = st;
+        if (st === "PASS") {
+          pill.className = "audit-status-pill status-pass";
+        } else if (st === "MISMATCH") {
+          pill.className = "audit-status-pill status-mismatch";
+        } else {
+          pill.className = "audit-status-pill status-unverified";
+        }
+        tdStatus.appendChild(pill);
+
+        tr.appendChild(tdField);
+        tr.appendChild(tdExpected);
+        tr.appendChild(tdActual);
+        tr.appendChild(tdStatus);
+        auditTableBody.appendChild(tr);
+      });
+    }
+  }
+
   function renderVerificationResult(data) {
+    if (!data) return;
+
+    // Always wipe all previous DOM state first so no stale patient name, coverage value,
+    // prepared-field badge, audit row, or success banner can ever persist across transitions.
+    resetWorkspaceDisplay();
+
     const modeBadge = document.getElementById("result-mode-badge");
     const banner = document.getElementById("ws-status-banner");
 
@@ -488,7 +804,6 @@
 
     const evPortalStep = document.getElementById("ev-portal-step");
     const evStagedSummary = document.getElementById("ev-staged-summary");
-    const evAccuracy = document.getElementById("ev-accuracy");
     const evPrepTime = document.getElementById("ev-prep-time");
 
     const tlStep1 = document.getElementById("tl-step-1");
@@ -508,8 +823,6 @@
     const gateSubmitted = document.getElementById("gate-submitted-val");
     const manualFallbackLink = document.getElementById("manual-fallback-link");
     const rawJsonPre = document.getElementById("raw-json-pre");
-
-    if (!data) return;
 
     const isSim = Boolean(data.is_simulated_demo);
     const prefixTag = isSim ? "SIMULATED (0 CREDITS)" : "LIVE TINYFISH";
@@ -538,11 +851,23 @@
     const active = isPolicyActive(pStatus);
     const acc = data.field_accuracy || {};
     const accVerified = Boolean(acc.verified);
+    const timing = data.timing || {};
 
     if (gateStopped) gateStopped.textContent = String(stopped);
-    if (gateSubmitted) gateSubmitted.textContent = String(submitted) + " (Locked)";
+    if (gateSubmitted) {
+      if (submitted) {
+        gateSubmitted.textContent = "true (VIOLATION)";
+        gateSubmitted.style.color = "#DC2626";
+      } else if (data.submission_safeguard_verified === false && policyFound) {
+        gateSubmitted.textContent = "false (Unverified)";
+        gateSubmitted.style.color = "#F59E0B";
+      } else {
+        gateSubmitted.textContent = "false (Locked)";
+        gateSubmitted.style.color = "#10B981";
+      }
+    }
 
-    // Update Evaluation Evidence Strip
+    // Update Evaluation Evidence Strip & Transparent Audit Table
     if (evPortalStep) {
       evPortalStep.textContent = data.current_portal_step || (stopped ? "Review & Verify" : "Halted");
     }
@@ -557,32 +882,24 @@
         evStagedSummary.textContent = "Not staged";
       }
     }
-    if (evAccuracy) {
-      if (Array.isArray(acc.matched_checks)) {
-        evAccuracy.textContent = accVerified
-          ? "Verified (" + acc.matched_checks.length + " checks)"
-          : "MISMATCH (" + (acc.discrepancies ? acc.discrepancies.length : 1) + ")";
-        evAccuracy.style.color = accVerified ? "#065F46" : "#DC2626";
-      } else {
-        evAccuracy.textContent = "—";
-        evAccuracy.style.color = "";
-      }
-    }
+
+    renderAuditTable(acc);
+
     if (evPrepTime) {
       if (isSim) {
-        evPrepTime.innerHTML = "0.0s <small>(Simulated)</small>";
+        evPrepTime.innerHTML = "0.0s <small>(Simulated — not measured)</small>";
       } else if (typeof data.elapsed_seconds === "number" && data.elapsed_seconds > 0) {
-        evPrepTime.innerHTML = data.elapsed_seconds.toFixed(1) + "s <small>(vs ~4–6m manual)</small>";
+        const obsLabel = timing.observation_label || "Single-run observation";
+        evPrepTime.innerHTML = data.elapsed_seconds.toFixed(1) + "s <small>(" + obsLabel + ")</small>";
+        if (timing.start_boundary && timing.end_boundary) {
+          evPrepTime.title =
+            "Start: " + timing.start_boundary + " | End: " + timing.end_boundary +
+            " (" + (timing.manual_baseline_note || "No manual baseline") + ")";
+        }
       } else {
-        evPrepTime.innerHTML = "&mdash; <small>(vs ~4–6m manual)</small>";
+        evPrepTime.innerHTML = "&mdash; <small>(Pre-dispatch check)</small>";
       }
     }
-
-    // Reset timeline classes
-    [tlStep1, tlStep2, tlStep3].forEach(function (el) {
-      if (el) el.className = "ws-tl-item";
-    });
-    if (tlFieldsWrap) tlFieldsWrap.innerHTML = "";
 
     // CASE 1: Policy NOT found or guardrail/auth/SDK error (policy_found === false)
     if (!policyFound) {
@@ -639,13 +956,19 @@
     }
 
     // CASE 2: Policy WAS found on the portal (Active, Lapsed, Field Mismatch, or Incomplete)
+    const isGenuineSuccess = Boolean(data.success && active && stopped && !submitted && accVerified);
+
     if (valStatus) {
       valStatus.textContent = pStatus || "Unspecified";
       valStatus.className = "vital-reading";
     }
     if (chipStatus) {
-      chipStatus.textContent = inactive ? "LAPSED" : active ? (isSim ? "SIMULATED" : "ACTIVE") : "EXTRACTED";
-      chipStatus.className = "vital-chip " + (active ? "chip-ok" : inactive ? "chip-err" : "chip-warn");
+      chipStatus.textContent = inactive
+        ? "LAPSED"
+        : isGenuineSuccess
+        ? (isSim ? "SIMULATED" : "ACTIVE")
+        : "UNVERIFIED";
+      chipStatus.className = "vital-chip " + (isGenuineSuccess ? "chip-ok" : inactive ? "chip-err" : "chip-warn");
     }
     if (subStatus) {
       subStatus.textContent = patientName
@@ -659,7 +982,7 @@
     }
     if (chipRoom) {
       chipRoom.textContent = rLimit ? (isSim ? "SIMULATED" : "EXTRACTED") : "MISSING";
-      chipRoom.className = "vital-chip " + (rLimit ? (inactive ? "chip-warn" : "chip-ok") : "chip-warn");
+      chipRoom.className = "vital-chip " + (rLimit && isGenuineSuccess ? "chip-ok" : "chip-warn");
     }
 
     if (valCopay) {
@@ -668,7 +991,7 @@
     }
     if (chipCopay) {
       chipCopay.textContent = copay ? (isSim ? "SIMULATED" : "EXTRACTED") : "MISSING";
-      chipCopay.className = "vital-chip " + (copay ? (inactive ? "chip-warn" : "chip-ok") : "chip-warn");
+      chipCopay.className = "vital-chip " + (copay && isGenuineSuccess ? "chip-ok" : "chip-warn");
     }
 
     // Timeline Step 1: Policy Search & Coverage Extraction
@@ -695,11 +1018,11 @@
       if (tlStep2) tlStep2.classList.add("err");
       if (tlBadge2) tlBadge2.textContent = "BLOCKED (LAPSED)";
       if (tlDesc2) tlDesc2.textContent = "Extracted Lapsed status prevented pre-authorization preparation.";
-    } else if (hasStageMismatch) {
+    } else if (data.run_status === "FIELD_MISMATCH" && hasStageMismatch) {
       if (tlStep2) tlStep2.classList.add("err");
       if (tlBadge2) tlBadge2.textContent = "FIELD MISMATCH";
       if (tlDesc2) tlDesc2.textContent = "Staged form values did not match submitted case inputs: " + acc.staging_discrepancies.join("; ");
-    } else if (fields.length > 0) {
+    } else if (isGenuineSuccess && fields.length > 0) {
       if (tlStep2) tlStep2.classList.add("done");
       if (tlBadge2) tlBadge2.textContent = fields.length + " ITEMS STAGED";
       if (tlDesc2) tlDesc2.textContent = "Populated Pre-Authorization Form and attached synthetic clinical document:";
@@ -714,17 +1037,17 @@
     } else {
       if (tlStep2) tlStep2.classList.add("warn");
       if (tlBadge2) tlBadge2.textContent = "INCOMPLETE";
-      if (tlDesc2) tlDesc2.textContent = "Policy verified, but pre-authorization form fields were not reported.";
+      if (tlDesc2) tlDesc2.textContent = "Pre-authorization form staging or review read-back was incomplete.";
     }
 
     // Timeline Step 3: Review & Verify Screen Halt & Cross-Check
     if (inactive) {
       if (tlBadge3) tlBadge3.textContent = "NOT REACHED";
       if (tlDesc3) tlDesc3.textContent = "Halted on Policy Details screen due to Lapsed policy status.";
-    } else if (stopped && !submitted && accVerified) {
+    } else if (isGenuineSuccess) {
       if (tlStep3) tlStep3.classList.add("done");
       if (tlBadge3) tlBadge3.textContent = "STOPPED & VERIFIED";
-      if (tlDesc3) tlDesc3.textContent = "Reached Review & Verify, verified all staged fields against case inputs, and stopped without clicking Submit.";
+      if (tlDesc3) tlDesc3.textContent = "Reached Review & Verify, verified all 11 field checks against case inputs, and stopped without clicking Submit.";
     } else if (stopped && !accVerified) {
       if (tlStep3) tlStep3.classList.add("err");
       if (tlBadge3) tlBadge3.textContent = "MISMATCH AT REVIEW";
@@ -735,7 +1058,7 @@
       if (tlDesc3) tlDesc3.textContent = "Agent did not confirm stopping at Review & Verify. Manual check required.";
     }
 
-    // Banner state: Only data.success === true (which requires accVerified === true) renders green!
+    // Banner state: Only isGenuineSuccess renders green!
     if (inactive) {
       if (banner) {
         banner.className = "ws-status-banner tone-err";
@@ -747,7 +1070,7 @@
           "):</strong> " +
           (data.error || "Cashless pre-authorization is prohibited for a lapsed policy.");
       }
-    } else if (data.run_status === "FIELD_MISMATCH" || !accVerified) {
+    } else if (data.run_status === "FIELD_MISMATCH") {
       if (banner) {
         banner.className = "ws-status-banner tone-err";
         banner.innerHTML =
@@ -756,7 +1079,7 @@
           "Verification Rejected — Field Mismatch Detected:</strong> " +
           (data.error || "Extracted or staged values did not match expected case inputs.");
       }
-    } else if (data.success && active && stopped && !submitted && accVerified) {
+    } else if (isGenuineSuccess) {
       if (banner) {
         banner.className = "ws-status-banner tone-ok";
         banner.innerHTML =
@@ -919,7 +1242,7 @@
         verifyBtnText.textContent = "Running TinyFish Cloud Agent (" + elapsed + "s)...";
       }
       if (evPrepTime) {
-        evPrepTime.innerHTML = elapsed + "s <small>(running...)</small>";
+        evPrepTime.innerHTML = elapsed + "s <small>(in progress...)</small>";
       }
       if (banner) {
         banner.innerHTML =
@@ -957,6 +1280,15 @@
         fields_prepared: [],
         stopped_at_review: false,
         submitted: false,
+        field_accuracy: {
+          verified: false,
+          total_checks: 0,
+          passed_count: 0,
+          mismatch_count: 0,
+          not_verified_count: 0,
+          checks: [],
+          discrepancies: ["Could not reach local Python backend (/api/verify): " + err.message]
+        },
         error: "Could not reach local Python backend (/api/verify): " + err.message
       });
     } finally {
@@ -1018,5 +1350,15 @@
       });
       renderVerificationResult(SIMULATED_SCENARIOS[key]);
     });
+  }
+
+  // Expose workspace state controllers for automated transition testing
+  if (typeof window !== "undefined") {
+    window.MedVerifyWorkspace = {
+      resetWorkspaceDisplay: resetWorkspaceDisplay,
+      renderVerificationResult: renderVerificationResult,
+      setExecutionMode: setExecutionMode,
+      SIMULATED_SCENARIOS: SIMULATED_SCENARIOS
+    };
   }
 })();

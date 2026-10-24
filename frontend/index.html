@@ -251,12 +251,37 @@
               <span id="ev-staged-summary" class="evidence-val">&mdash;</span>
             </div>
             <div class="evidence-cell">
-              <span class="evidence-label">Fixture &amp; Input Cross-Check</span>
+              <span class="evidence-label">Field-Accuracy Audit</span>
               <span id="ev-accuracy" class="evidence-val">&mdash;</span>
             </div>
             <div class="evidence-cell">
-              <span class="evidence-label">Preparation Time</span>
-              <span id="ev-prep-time" class="evidence-val">&mdash; <small>(vs ~4–6m manual)</small></span>
+              <span class="evidence-label" title="Measured from backend verify_policy() start to TinyFish response &amp; audit completion">Automation Time (SDK &rarr; Audit)</span>
+              <span id="ev-prep-time" class="evidence-val">&mdash; <small>(Unmeasured)</small></span>
+            </div>
+          </div>
+
+          <!-- Transparent Field-by-Field Evidence & Safeguard Audit Table -->
+          <div id="audit-panel" class="audit-panel" aria-label="Field-Accuracy Audit Table">
+            <div class="audit-panel-head">
+              <span class="audit-panel-title">Field-by-Field Evidence &amp; Safeguard Audit</span>
+              <span id="audit-summary-badge" class="audit-summary-badge">0 CHECKS RUN</span>
+            </div>
+            <div class="audit-table-wrap">
+              <table class="audit-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Expected Value</th>
+                    <th>Actual (Portal / Review Screen)</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-table-body">
+                  <tr>
+                    <td colspan="4" class="audit-empty-cell">No field-accuracy checks executed yet. Run live verification or preview a scenario to inspect field-by-field evidence.</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

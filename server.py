@@ -23,27 +23,100 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from tinyfish_client import DEFAULT_PORTAL_URL, load_env_file, verify_policy
+from tinyfish_client import (
+    DEFAULT_PORTAL_URL,
+    TIMING_END_BOUNDARY,
+    TIMING_START_BOUNDARY,
+    load_env_file,
+    verify_policy,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 RUNS_LOG_PATH = BASE_DIR / "runs_log.jsonl"
 DEFAULT_PORT = int(os.getenv("MEDVERIFY_PORT", "8080"))
 
+NON_LIVE_STATUSES = {
+    "INVALID_INPUT",
+    "INVALID_URL",
+    "UNAUTHORIZED_PORTAL",
+    "MISSING_API_KEY",
+    "INVALID_JSON",
+}
+
+
+def _compute_live_timing_stats() -> dict:
+    """
+    Compute honest timing telemetry from runs_log.jsonl.
+    If fewer than 3 live SDK runs exist, label as a single-run observation rather than
+    claiming a statistically meaningful average or manual baseline comparison.
+    """
+    live_durations: list[float] = []
+    if RUNS_LOG_PATH.is_file():
+        try:
+            for line in RUNS_LOG_PATH.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                status = str(row.get("run_status") or "")
+                elapsed = row.get("elapsed_seconds")
+                is_live = row.get("is_measured_live_run")
+                if is_live is None:
+                    is_live = status not in NON_LIVE_STATUSES and isinstance(elapsed, (int, float)) and elapsed >= 0.5
+                if (
+                    is_live
+                    and row.get("success") is True
+                    and row.get("stopped_at_review") is True
+                    and isinstance(elapsed, (int, float))
+                    and elapsed > 0
+                ):
+                    live_durations.append(float(elapsed))
+        except Exception:
+            pass
+
+    count = len(live_durations)
+    avg_sec = round(sum(live_durations) / count, 2) if count >= 5 else None
+    if count == 0:
+        label = "Single-run observation (no completed live runs logged yet)"
+    elif count == 1:
+        label = "Single-run observation (1 completed live run)"
+    elif count < 5:
+        label = f"Single-run observation ({count} completed live runs; <5 for average)"
+    else:
+        label = f"Measured across {count} completed live runs (avg {avg_sec}s)"
+
+    return {
+        "measured_live_runs_count": count,
+        "average_live_elapsed_seconds": avg_sec,
+        "observation_label": label,
+        "start_boundary": TIMING_START_BOUNDARY,
+        "end_boundary": TIMING_END_BOUNDARY,
+        "manual_baseline_note": "No manual baseline measured in this environment",
+    }
+
 
 def _append_run_log(result: dict) -> None:
     """Append real backend verification runs to runs_log.jsonl for evaluation evidence."""
     try:
+        acc = result.get("field_accuracy") or {}
+        timing = result.get("timing") or {}
         entry = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "policy_id": result.get("policy_id"),
+            "extracted_policy_id": result.get("extracted_policy_id"),
             "run_status": result.get("run_status"),
             "success": result.get("success"),
             "policy_status": result.get("policy_status"),
             "stopped_at_review": result.get("stopped_at_review"),
             "submitted": result.get("submitted"),
             "elapsed_seconds": result.get("elapsed_seconds"),
-            "field_accuracy_verified": (result.get("field_accuracy") or {}).get("verified"),
+            "is_measured_live_run": timing.get("is_measured_live_run"),
+            "field_accuracy_verified": acc.get("verified"),
+            "total_checks": acc.get("total_checks"),
+            "passed_count": acc.get("passed_count"),
+            "mismatch_count": acc.get("mismatch_count"),
+            "not_verified_count": acc.get("not_verified_count"),
         }
         with RUNS_LOG_PATH.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -92,6 +165,7 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
                     "api_key_configured": bool(os.getenv("TINYFISH_API_KEY")),
                     "submission_lock": True,
                     "default_portal_url": os.getenv("MOCK_PORTAL_URL", DEFAULT_PORTAL_URL),
+                    "timing_stats": _compute_live_timing_stats(),
                 },
             )
             return
@@ -142,6 +216,12 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             use_sample_document=bool(data.get("use_sample_document", True)),
         )
         _append_run_log(result)
+        stats = _compute_live_timing_stats()
+        if isinstance(result.get("timing"), dict):
+            result["timing"]["measured_live_runs_count"] = stats["measured_live_runs_count"]
+            result["timing"]["average_live_elapsed_seconds"] = stats["average_live_elapsed_seconds"]
+            if result["timing"].get("is_measured_live_run"):
+                result["timing"]["observation_label"] = stats["observation_label"]
         self._send_json(200, result)
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
