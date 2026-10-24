@@ -1049,6 +1049,15 @@ def verify_policy(
     elapsed_seconds = round(time.perf_counter() - start_ts, 2)
     timing_meta = _build_timing_metadata(elapsed_seconds, is_measured_live_run=True)
 
+    run_id = getattr(run, "run_id", None)
+    live_view_url = getattr(run, "streaming_url", None) or getattr(run, "live_view_url", None)
+    if not live_view_url and run_id and hasattr(client, "runs") and hasattr(client.runs, "get"):
+        try:
+            run_detail = client.runs.get(run_id)
+            live_view_url = getattr(run_detail, "streaming_url", None) or getattr(run_detail, "live_view_url", None)
+        except Exception:
+            pass
+
     # 5. Verify the run completed and returned a dictionary matching our schema
     status_name = getattr(run.status, "name", str(run.status))
     if run.status != RunStatus.COMPLETED:
@@ -1223,6 +1232,8 @@ def verify_policy(
             return {
                 "success": False,
                 "run_status": "ACCESS_OR_AUTH_BLOCKED",
+                "run_id": run_id,
+                "live_view_url": live_view_url,
                 "policy_id": policy_id_clean,
                 "extracted_policy_id": extracted_policy_id,
                 "portal_url": portal_url_clean,
@@ -1591,6 +1602,8 @@ def verify_policy(
     return {
         "success": True,
         "run_status": status_name,
+        "run_id": run_id,
+        "live_view_url": live_view_url,
         "fallback_used": fallback_used,
         "paused_for_human_check": paused_for_human_check,
         "human_check_status_history": human_check_status_history,

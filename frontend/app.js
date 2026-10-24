@@ -569,6 +569,10 @@
 
   // Clear all previous results immediately so stale data is NEVER displayed
   function resetWorkspaceDisplay(statusMessageHtml, bannerTone) {
+    if (liveTimerInterval) {
+      clearInterval(liveTimerInterval);
+      liveTimerInterval = null;
+    }
     const modeBadge = document.getElementById("result-mode-badge");
     const banner = document.getElementById("ws-status-banner");
 

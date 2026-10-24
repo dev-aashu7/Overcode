@@ -350,14 +350,30 @@ const t6Ok = (
 );
 results.push(['24. Transition 6: Simulated demo -> Live mode wipes all simulated preview data', t6Ok, `status=${{elements['val-status'].textContent}}, audit=${{elements['audit-summary-badge'].textContent}}`]);
 
-// 7. Dashboard 'Waiting for human check' status while paused
+// 7. Dashboard 'Waiting for human check' status while paused + starting a new case right after clears 'Waiting' banner
 ws.renderWaitingForHumanCheck();
-const waitOk = (
+const waitShown = (
   elements['val-status'].textContent === 'Waiting for human check' &&
   elements['ev-portal-step'].textContent === 'Waiting for human check' &&
   elements['ws-status-banner'].innerHTML.includes('Waiting for human check')
 );
-results.push(['25. Dashboard displays status "Waiting for human check" while paused', waitOk, `val-status=${{elements['val-status'].textContent}}, step=${{elements['ev-portal-step'].textContent}}`]);
+ws.resetWorkspaceDisplay('<strong>Case Preset Updated:</strong> Stale results cleared.');
+const waitClearedOnReset = (
+  !elements['val-status'].textContent.includes('Waiting') &&
+  !elements['ev-portal-step'].textContent.includes('Waiting') &&
+  !elements['ws-status-banner'].innerHTML.includes('Waiting for human check') &&
+  !elements['tl-badge-1'].textContent.includes('Waiting')
+);
+ws.renderWaitingForHumanCheck();
+ws.renderVerificationResult(activeRes);
+const waitClearedOnNewResult = (
+  elements['val-status'].textContent === 'Active' &&
+  elements['ev-portal-step'].textContent === 'Review & Verify' &&
+  !elements['ws-status-banner'].innerHTML.includes('Waiting for human check') &&
+  !elements['tl-badge-1'].textContent.includes('Waiting')
+);
+const waitOk = waitShown && waitClearedOnReset && waitClearedOnNewResult;
+results.push(['25. Dashboard displays "Waiting for human check" while paused & clears it completely on new case', waitOk, `shown=${{waitShown}}, clearedOnReset=${{waitClearedOnReset}}, clearedOnNewResult=${{waitClearedOnNewResult}}`]);
 
 console.log(JSON.stringify(results));
 """
@@ -377,23 +393,23 @@ class StubPlaywrightPage:
     """
     Stubbed Playwright page for testing the optional local headed-Chromium fallback:
     - mode == 'no_check': 'Policy Search' heading is immediately visible.
-    - mode == 'check_then_solved': Initially displays a CAPTCHA/verification check;
-      after solve_after_polls wait cycles (simulating a human solving the check in the
-      visible browser window), 'Policy Search' heading appears and workflow resumes.
+    - mode == 'check_then_completed': Initially displays a CAPTCHA/verification check;
+      after human_complete_after_polls wait cycles (simulating a human completing the check
+      in the visible browser window), 'Policy Search' heading appears and workflow resumes.
     - mode == 'timeout': Remains on the verification check until timeout expires.
     """
 
-    def __init__(self, mode: str = "no_check", solve_after_polls: int = 2) -> None:
+    def __init__(self, mode: str = "no_check", human_complete_after_polls: int = 2) -> None:
         self.mode = mode
-        self.solve_after_polls = solve_after_polls
+        self.human_complete_after_polls = human_complete_after_polls
         self.poll_count = 0
         self.submit_clicked = False
 
     def get_visible_text(self) -> str:
         if self.mode == "no_check":
             return "ApexCare Health TPA — Policy Search"
-        if self.mode == "check_then_solved":
-            if self.poll_count < self.solve_after_polls:
+        if self.mode == "check_then_completed":
+            if self.poll_count < self.human_complete_after_polls:
                 return "Security Check — Verify you are human (CAPTCHA challenge)"
             return "ApexCare Health TPA — Policy Search"
         return "Security Check — Verify you are human (CAPTCHA challenge)"
@@ -832,8 +848,8 @@ def run_local_checks() -> None:
             f"success: {fb_no_check_res.get('success')} | paused: {fb_no_check_res.get('paused_for_human_check')} | checks: {fb_nc_acc.get('passed_count')}/11",
         )
 
-        # Test 27: Playwright Fallback (Stubbed Page: Check Detected -> 'Waiting for human check' -> Solved by Human)
-        stub_check_solved = StubPlaywrightPage(mode="check_then_solved", solve_after_polls=2)
+        # Test 27: Playwright Fallback (Stubbed Page: Check Detected -> 'Waiting for human check' -> Completed by Human)
+        stub_check_done = StubPlaywrightPage(mode="check_then_completed", human_complete_after_polls=2)
         observed_statuses: list[tuple[str, str]] = []
 
         def _capture_status(code: str, text: str) -> None:
@@ -841,7 +857,7 @@ def run_local_checks() -> None:
 
         with patch("tinyfish_client.TinyFish") as mock_tf_cls:
             mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
-            fb_solved_res = verify_policy(
+            fb_done_res = verify_policy(
                 policy_id="POL-100245",
                 diagnosis="Acute Cholecystitis / ICD-10 K81.0",
                 estimated_cost=85000,
@@ -851,24 +867,24 @@ def run_local_checks() -> None:
                 human_check_timeout_seconds=10.0,
                 poll_interval_seconds=0.01,
                 status_callback=_capture_status,
-                playwright_stub_page=stub_check_solved,
+                playwright_stub_page=stub_check_done,
             )
-        fb_sol_acc = fb_solved_res.get("field_accuracy") or {}
+        fb_sol_acc = fb_done_res.get("field_accuracy") or {}
         fb_sol_ok = (
-            fb_solved_res.get("success") is True
-            and fb_solved_res.get("fallback_used") == "playwright_headed_chromium"
-            and fb_solved_res.get("paused_for_human_check") is True
+            fb_done_res.get("success") is True
+            and fb_done_res.get("fallback_used") == "playwright_headed_chromium"
+            and fb_done_res.get("paused_for_human_check") is True
             and any(txt == "Waiting for human check" for _, txt in observed_statuses)
-            and stub_check_solved.poll_count == 2
-            and fb_solved_res.get("stopped_at_review") is True
-            and fb_solved_res.get("submitted") is False
+            and stub_check_done.poll_count == 2
+            and fb_done_res.get("stopped_at_review") is True
+            and fb_done_res.get("submitted") is False
             and fb_sol_acc.get("verified") is True
             and fb_sol_acc.get("passed_count") == 11
         )
         record(
-            "27. Playwright Fallback (Stubbed Page — Check Then Solved): Pauses ('Waiting for human check'), resumes on 'Policy Search', 11/11 PASS",
+            "27. Playwright Fallback (Stubbed Page — Check Then Completed): Pauses ('Waiting for human check'), resumes on 'Policy Search', 11/11 PASS",
             fb_sol_ok,
-            f"paused: {fb_solved_res.get('paused_for_human_check')} | statuses: {[t for _, t in observed_statuses]} | polls: {stub_check_solved.poll_count}",
+            f"paused: {fb_done_res.get('paused_for_human_check')} | statuses: {[t for _, t in observed_statuses]} | polls: {stub_check_done.poll_count}",
         )
 
         # Test 28: Playwright Fallback (Stubbed Page: Check Expires -> HUMAN_CHECK_TIMEOUT)
@@ -923,6 +939,29 @@ def run_local_checks() -> None:
             "29. 20-Run Mocked Reproducibility & Schema-Consistency Harness (20/20 runs)",
             repro_ok,
             "0 auto-submissions, 100% transparent audit consistency across 20 mocked runs.",
+        )
+
+        # Test 30: Non-blocking /api/status during wait + VERIFY_RUN_LOCK prevents concurrent status overwrite
+        import server
+        server._update_live_run_status("WAITING_FOR_HUMAN_CHECK", "Waiting for human check")
+        acquired_first = server.VERIFY_RUN_LOCK.acquire(blocking=False)
+        try:
+            status_during_wait = server._get_live_run_status()
+            acquired_second = server.VERIFY_RUN_LOCK.acquire(blocking=False)
+        finally:
+            if acquired_first:
+                server.VERIFY_RUN_LOCK.release()
+            server._update_live_run_status("IDLE", "Idle")
+
+        concurrency_ok = (
+            acquired_first is True
+            and acquired_second is False
+            and status_during_wait.get("status") == "Waiting for human check"
+        )
+        record(
+            "30. Concurrency & Status Guard: /api/status answers during wait & VERIFY_RUN_LOCK prevents overlapping runs",
+            concurrency_ok,
+            f"status_during_wait: '{status_during_wait.get('status')}' | second_lock_blocked: {not acquired_second}",
         )
 
     print(f"Summary: {passed_tests}/{total_tests} checks passed (0 TinyFish credits used).")

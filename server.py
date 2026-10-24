@@ -18,6 +18,7 @@ import json
 import mimetypes
 import os
 import sys
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,13 +50,22 @@ LIVE_RUN_STATUS: dict = {
     "status": "Idle",
     "updated_at_utc": None,
 }
+STATUS_LOCK = threading.Lock()
+VERIFY_RUN_LOCK = threading.Lock()
 
 
 def _update_live_run_status(state_code: str, status_text: str) -> None:
-    """Update shared runtime status so /api/status can report 'Waiting for human check'."""
-    LIVE_RUN_STATUS["state"] = state_code
-    LIVE_RUN_STATUS["status"] = status_text
-    LIVE_RUN_STATUS["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
+    """Update shared runtime status thread-safely so /api/status can report 'Waiting for human check'."""
+    with STATUS_LOCK:
+        LIVE_RUN_STATUS["state"] = state_code
+        LIVE_RUN_STATUS["status"] = status_text
+        LIVE_RUN_STATUS["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
+
+
+def _get_live_run_status() -> dict:
+    """Return a thread-safe snapshot of LIVE_RUN_STATUS without blocking on VERIFY_RUN_LOCK."""
+    with STATUS_LOCK:
+        return dict(LIVE_RUN_STATUS)
 
 
 def _compute_live_timing_stats() -> dict:
@@ -179,13 +189,13 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
                     "submission_lock": True,
                     "default_portal_url": os.getenv("MOCK_PORTAL_URL", DEFAULT_PORTAL_URL),
                     "timing_stats": _compute_live_timing_stats(),
-                    "live_run_status": dict(LIVE_RUN_STATUS),
+                    "live_run_status": _get_live_run_status(),
                 },
             )
             return
 
         if route == "/api/status":
-            self._send_json(200, dict(LIVE_RUN_STATUS))
+            self._send_json(200, _get_live_run_status())
             return
 
         if route in ("/", "/index.html"):
@@ -223,6 +233,28 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if not VERIFY_RUN_LOCK.acquire(blocking=False):
+            current_st = _get_live_run_status()
+            self._send_json(
+                409,
+                {
+                    "success": False,
+                    "run_status": "CONCURRENT_RUN_BLOCKED",
+                    "policy_id": data.get("policy_id", ""),
+                    "portal_url": data.get("portal_url", DEFAULT_PORTAL_URL),
+                    "manual_fallback_url": data.get("portal_url", DEFAULT_PORTAL_URL),
+                    "submitted": False,
+                    "stopped_at_review": False,
+                    "live_run_status": current_st,
+                    "error": (
+                        "Another verification run is already in progress "
+                        f"(current status: '{current_st.get('status', 'Running')}'). "
+                        "Wait for the active run or human check to finish before starting a second run."
+                    ),
+                },
+            )
+            return
+
         _update_live_run_status("RUNNING_TINYFISH", "Running TinyFish Cloud Agent")
         try:
             result = verify_policy(
@@ -240,6 +272,7 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             )
         finally:
             _update_live_run_status("IDLE", "Idle")
+            VERIFY_RUN_LOCK.release()
         _append_run_log(result)
         stats = _compute_live_timing_stats()
         if isinstance(result.get("timing"), dict):

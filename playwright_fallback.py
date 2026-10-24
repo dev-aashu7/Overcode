@@ -242,23 +242,32 @@ def execute_playwright_workflow_on_page(
 
     # Real Playwright Page DOM interaction against https://medverify-tpa-portal.vercel.app/
     # Step 1: Navigate to Policy Search if currently on Home screen
-    proceed_btn = page.locator("button:has-text('Proceed to Policy Search'), a:has-text('Policy Search')")
+    proceed_btn = page.locator(
+        "#btn-home-start-search, #btn-nav-search, button:has-text('Proceed to Policy Search')"
+    )
     if proceed_btn.count() > 0 and proceed_btn.first.is_visible():
         proceed_btn.first.click()
 
-    page.locator("text=/Policy Search/i").first.wait_for(state="visible", timeout=15000)
+    page.locator("#input-policy-id, #policy-search-input").first.wait_for(
+        state="visible", timeout=15000
+    )
 
     # Step 2: Enter Policy ID and click Search Policy
-    search_input = page.locator("#policy-search-input, input[placeholder*='POL-'], input[type='text']").first
+    search_input = page.locator(
+        "#input-policy-id, #policy-search-input, input[placeholder*='POL-'], input[type='text']"
+    ).first
     search_input.fill(str(policy_id).strip())
     search_btn = page.locator("#btn-search-policy, button:has-text('Search Policy')").first
     search_btn.click()
 
-    page.wait_for_timeout(600)
+    page.wait_for_timeout(400)
 
-    # Step 3: Check for Not Found alert on Policy Search
+    # Step 3: Check for Not Found alert (#alert-search-error) on Policy Search
+    err_alert = page.locator("#alert-search-error")
     body_text = _get_page_text_lower(page)
-    if "not found" in body_text and "policy details" not in body_text:
+    if (err_alert.count() > 0 and err_alert.first.is_visible()) or (
+        "not found" in body_text and "policy details" not in body_text
+    ):
         return {
             "timed_out": False,
             "run_status": "COMPLETED",
@@ -287,7 +296,7 @@ def execute_playwright_workflow_on_page(
             },
         }
 
-    # Step 4: Extract Policy Details
+    # Step 4: Extract Policy Details from real portal key-value table & status alert
     def _read_selector_text(sel: str, default: str = "") -> str:
         try:
             loc = page.locator(sel)
@@ -297,12 +306,53 @@ def execute_playwright_workflow_on_page(
             pass
         return default
 
-    extracted_pid = _read_selector_text("#detail-policy-id, [data-testid='policy-id']", str(policy_id).strip())
-    patient_name = _read_selector_text("#detail-patient-name, [data-testid='patient-name']")
-    insurer_name = _read_selector_text("#detail-insurer-name, [data-testid='insurer-name']")
-    policy_status = _read_selector_text("#detail-policy-status, [data-testid='policy-status']")
-    room_rent_limit = _read_selector_text("#detail-room-rent, [data-testid='room-rent-limit']")
-    copay_percentage = _read_selector_text("#detail-copay, [data-testid='copay-percentage']")
+    def _read_kv_row(label_text: str, fallback_sel: str = "", default: str = "") -> str:
+        if fallback_sel:
+            val = _read_selector_text(fallback_sel, "")
+            if val:
+                return val
+        try:
+            row_loc = page.locator(
+                f"tr:has(td.label-col:has-text('{label_text}')) td.value-col"
+            )
+            if row_loc.count() > 0:
+                return str(row_loc.first.inner_text()).strip()
+        except Exception:
+            pass
+        return default
+
+    extracted_pid = _read_kv_row(
+        "Policy ID:",
+        "#detail-policy-id, [data-testid='policy-id']",
+        str(policy_id).strip(),
+    )
+    patient_name = _read_kv_row(
+        "Patient Name:",
+        "#detail-patient-name, [data-testid='patient-name']",
+    )
+    room_rent_limit = _read_kv_row(
+        "Room Rent Limit:",
+        "#detail-room-rent, [data-testid='room-rent-limit']",
+    )
+    copay_percentage = _read_kv_row(
+        "Co-Payment Clause:",
+        "#detail-copay, [data-testid='copay-percentage']",
+    )
+
+    insurer_name = _read_selector_text("#detail-insurer-name, [data-testid='insurer-name']", "")
+    policy_status = _read_selector_text("#detail-policy-status, [data-testid='policy-status']", "")
+
+    active_alert_text = _read_selector_text("#alert-policy-active", "")
+    lapsed_alert_text = _read_selector_text("#alert-policy-lapsed", "")
+    if active_alert_text:
+        if not policy_status:
+            policy_status = "Active"
+        if not insurer_name and "Underwritten by" in active_alert_text:
+            part = active_alert_text.split("Underwritten by", 1)[1]
+            insurer_name = part.split("Managed by", 1)[0].strip(" -·•\t\r\n")
+    elif lapsed_alert_text:
+        if not policy_status:
+            policy_status = "Lapsed"
 
     if "lapsed" in policy_status.lower() or "inactive" in policy_status.lower():
         return {
@@ -316,7 +366,7 @@ def execute_playwright_workflow_on_page(
                 "policy_found": True,
                 "extracted_policy_id": extracted_pid,
                 "patient_name": patient_name,
-                "insurer_name": insurer_name,
+                "insurer_name": insurer_name or None,
                 "policy_status": policy_status,
                 "room_rent_limit": room_rent_limit,
                 "copay_percentage": copay_percentage,
@@ -337,34 +387,50 @@ def execute_playwright_workflow_on_page(
         }
 
     # Step 5: Active policy -> Click Initiate Pre-Authorization
-    init_btn = page.locator("#btn-initiate-preauth, button:has-text('Initiate Pre-Authorization')").first
+    init_btn = page.locator(
+        "#btn-initiate-preauth, button:has-text('Initiate Pre-Authorization')"
+    ).first
     init_btn.click()
 
     # Step 6: Fill Pre-Authorization Form using the exact same case inputs
-    hosp_input = page.locator("#input-hospital-name, input[name='hospitalName']")
+    hosp_input = page.locator(
+        "#input-hospital-name, input[name='hospital_name'], input[name='hospitalName']"
+    )
     if hosp_input.count() > 0:
         hosp_input.first.fill(str(hospital_name))
 
-    doc_input = page.locator("#input-doctor-name, input[name='doctorName']")
+    doc_input = page.locator(
+        "#input-doctor-name, input[name='doctor_name'], input[name='doctorName']"
+    )
     if doc_input.count() > 0:
         doc_input.first.fill(str(doctor_name))
 
-    diag_input = page.locator("#input-diagnosis, input[name='diagnosis'], textarea[name='diagnosis']").first
+    diag_input = page.locator(
+        "#input-diagnosis, input[name='diagnosis'], textarea[name='diagnosis']"
+    ).first
     diag_input.fill(str(diagnosis))
 
-    cost_input = page.locator("#input-estimated-cost, input[name='estimatedCost'], input[type='number']").first
+    cost_input = page.locator(
+        "#input-estimated-cost, input[name='estimated_cost'], input[name='estimatedCost'], input[type='number']"
+    ).first
     cost_input.fill(str(estimated_cost))
 
-    room_select = page.locator("#select-room-category, select[name='roomCategory']")
+    room_select = page.locator(
+        "#input-room-category, #select-room-category, select[name='room_category'], select[name='roomCategory']"
+    )
     if room_select.count() > 0:
         room_select.first.select_option(label=str(room_category))
 
-    next_doc_btn = page.locator("#btn-next-doc-upload, button:has-text('Next: Document Upload'), button:has-text('Document Upload')").first
+    next_doc_btn = page.locator(
+        "#btn-to-doc-upload, #btn-next-doc-upload, button:has-text('Next: Document Upload'), button:has-text('Document Upload')"
+    ).first
     next_doc_btn.click()
 
     # Step 7: Document Upload -> attach sample_clinical_document.pdf and Proceed to Review
     if use_sample_document:
-        sample_chk = page.locator("#chk-sample-doc, input[type='checkbox'], button:has-text('Use Sample Document')")
+        sample_chk = page.locator(
+            "#chk-use-sample-doc, #chk-sample-doc, input[name='use_sample_document'], input[type='checkbox']"
+        )
         if sample_chk.count() > 0:
             first_chk = sample_chk.first
             try:
@@ -373,20 +439,30 @@ def execute_playwright_workflow_on_page(
             except Exception:
                 first_chk.click()
 
-    proceed_review_btn = page.locator("#btn-proceed-review, button:has-text('Proceed to Review')").first
+    proceed_review_btn = page.locator(
+        "#btn-to-review, #btn-proceed-review, button:has-text('Proceed to Review')"
+    ).first
     proceed_review_btn.click()
 
-    # Step 8: Wait for Review & Verify screen and read back staged values
-    page.locator("text=/Review & Verify/i").first.wait_for(state="visible", timeout=15000)
+    # Step 8: Wait for Review & Verify screen and read back staged values from real DOM
+    page.locator("#heading-review-verify, h2:has-text('Review & Verify')").first.wait_for(
+        state="visible", timeout=15000
+    )
 
     review_pid = _read_selector_text("#review-policy-id", extracted_pid)
-    staged_diag = _read_selector_text("#review-diagnosis", str(diagnosis))
-    staged_cost = _read_selector_text("#review-estimated-cost", str(estimated_cost))
-    staged_room = _read_selector_text("#review-room-category", str(room_category))
-    staged_doc = _read_selector_text(
-        "#review-document-name",
-        "sample_clinical_document.pdf" if use_sample_document else "",
-    )
+    review_patient = _read_selector_text("#review-patient-name", patient_name)
+    review_status = _read_selector_text("#review-policy-status", policy_status or "Active")
+    staged_diag = _read_selector_text("#review-diagnosis", "")
+    staged_cost = _read_selector_text("#review-estimated-cost", "")
+    staged_room = _read_selector_text("#review-room-category", "")
+    staged_doc = _read_selector_text("#review-document-name", "")
+
+    receipt_visible = False
+    try:
+        receipt_loc = page.locator("#success-heading, #ref-number-badge")
+        receipt_visible = bool(receipt_loc.count() > 0 and receipt_loc.first.is_visible())
+    except Exception:
+        receipt_visible = False
 
     # Step 9: STOP at Review & Verify. NEVER click #btn-submit-preauth ('Submit Pre-Authorization').
     return {
@@ -399,9 +475,9 @@ def execute_playwright_workflow_on_page(
         "extracted": {
             "policy_found": True,
             "extracted_policy_id": review_pid,
-            "patient_name": patient_name,
+            "patient_name": review_patient or patient_name,
             "insurer_name": insurer_name,
-            "policy_status": policy_status or "Active",
+            "policy_status": review_status or policy_status or "Active",
             "room_rent_limit": room_rent_limit,
             "copay_percentage": copay_percentage,
             "fields_prepared": [
@@ -417,11 +493,11 @@ def execute_playwright_workflow_on_page(
             "staged_diagnosis": staged_diag,
             "staged_estimated_cost": staged_cost,
             "staged_room_category": staged_room,
-            "stopped_at_review": True,
-            "submitted_or_receipt_visible": False,
+            "stopped_at_review": not receipt_visible,
+            "submitted_or_receipt_visible": receipt_visible,
             "access_or_auth_blocked": False,
             "notes": (
-                "Playwright headed-Chromium local fallback completed after human check gate; "
+                "Playwright headed-Chromium local fallback completed on real portal; "
                 "staged pre-authorization fields and stopped at Review & Verify without submitting."
             ),
         },
@@ -485,6 +561,10 @@ def run_headed_playwright_fallback(
             context = browser.new_context()
             page = context.new_page()
             page.goto(portal_url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
             return execute_playwright_workflow_on_page(
                 page=page,
                 policy_id=policy_id,
