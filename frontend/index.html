@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedVerify — Cashless Pre-Authorization Desk</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- ========================================================================
+       TOP WORKSPACE BAR
+       ======================================================================== -->
+  <header class="top-nav">
+    <div class="top-nav-inner">
+      <a href="#workspace" class="brand-mark" aria-label="MedVerify">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M11 8L29 8L35 16L23 16L17 24L35 24L29 32L11 32L5 24L17 24L23 16L5 16L11 8Z" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-mark-label">MedVerify</span>
+        <span class="sandbox-tag">SANDBOX &middot; APEXCARE TPA</span>
+      </a>
+
+      <div class="nav-actions">
+        <!-- Interactive Simulation Quick-Trigger -->
+        <button type="button" id="nav-sim-btn" class="circle-btn" title="Preview Confirmed Portal Scenarios (0 Credits)" aria-label="Preview Simulated Workflow">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </button>
+
+        <!-- Backend API Key & Safety Telemetry Indicator -->
+        <button type="button" id="nav-telemetry-btn" class="circle-btn" title="Backend API Status & Safety Locks" aria-label="Backend API Status">
+          <span id="nav-api-dot" class="status-dot-mini warn"></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       CASHLESS PRE-AUTHORIZATION DESK (01/03 -> 03/03)
+       ======================================================================== -->
+  <main id="workspace" class="workspace-section">
+    <div class="section-container">
+      <div class="workspace-header-bar reveal-up in-view">
+        <div>
+          <span class="section-tag">Cashless Pre-Authorization Desk</span>
+          <h1 class="workspace-index" style="margin-top: 10px;">
+            Verify. <span>Prepare. Review.</span>
+          </h1>
+        </div>
+
+        <div>
+          <div class="mode-switcher" role="tablist" aria-label="Execution Mode">
+            <button type="button" id="mode-live-btn" class="mode-tab active" role="tab" aria-selected="true">
+              Live TinyFish Backend
+            </button>
+            <button type="button" id="mode-sim-btn" class="mode-tab" role="tab" aria-selected="false">
+              Simulated Demo (0 Credits)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clearly Labeled Simulated Demonstration Bar (Only visible in Simulated Mode) -->
+      <div id="sim-banner" class="sim-disclaimer-banner" role="region" aria-label="Simulation Notice">
+        <div>
+          <strong>SIMULATED DEMONSTRATION MODE (0 TINYFISH CREDITS):</strong>
+          Preview the exact confirmed policy records on <code>medverify-tpa-portal.vercel.app</code> without making a live TinyFish cloud call.
+        </div>
+        <div class="sim-scenario-pills">
+          <button type="button" class="scenario-btn active" data-scenario="pol100245">POL-100245 (Rahul Sharma &middot; Active)</button>
+          <button type="button" class="scenario-btn" data-scenario="pol205118">POL-205118 (Sunita Verma &middot; Active)</button>
+          <button type="button" class="scenario-btn" data-scenario="pol309872">POL-309872 (Priya Nair &middot; Active)</button>
+          <button type="button" class="scenario-btn" data-scenario="pol999001">POL-999001 (Vikram Malhotra &middot; Lapsed)</button>
+          <button type="button" class="scenario-btn" data-scenario="unknown">Unknown ID (POL-999999)</button>
+        </div>
+      </div>
+
+      <!-- Practical Two-Column Workspace -->
+      <div class="workspace-split">
+
+        <!-- LEFT COLUMN: 01 / 03 CASE INTAKE -->
+        <div class="ws-panel reveal-up in-view">
+          <div class="ws-step-header">
+            <span class="ws-step-title">Case Intake Parameters</span>
+            <span class="ws-step-num">01 / 03</span>
+          </div>
+
+          <form id="verify-form" novalidate>
+            <div class="preset-row">
+              <label class="field-label" for="preset-select">
+                <span>Confirmed Portal Policy Preset</span>
+                <span class="field-hint">APEXCARE TPA RECORDS</span>
+              </label>
+              <select id="preset-select" class="ws-select">
+                <option value="pol100245" selected>POL-100245 &mdash; Rahul Sharma (Active &middot; ₹5,000/day &middot; 0% Co-Pay)</option>
+                <option value="pol205118">POL-205118 &mdash; Sunita Verma (Active &middot; Senior 1% SI &middot; 10% Co-Pay)</option>
+                <option value="pol309872">POL-309872 &mdash; Priya Nair (Active &middot; Corporate GMC &middot; No Cap)</option>
+                <option value="pol999001">POL-999001 &mdash; Vikram Malhotra (Lapsed Policy Test)</option>
+                <option value="pol999999">POL-999999 &mdash; Unknown / Not Found Policy Test</option>
+                <option value="custom">Custom Policy Input</option>
+              </select>
+            </div>
+
+            <div class="field-row-2">
+              <div class="field-group">
+                <label class="field-label" for="policy-id-input">
+                  <span>Policy ID</span>
+                  <span class="field-hint">Required</span>
+                </label>
+                <input id="policy-id-input" class="ws-input" type="text" value="POL-100245" placeholder="e.g., POL-100245" required />
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="cost-input">
+                  <span>Estimated Cost (INR)</span>
+                  <span class="field-hint">Tariff</span>
+                </label>
+                <input id="cost-input" class="ws-input" type="number" min="1000" step="1000" value="85000" required />
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="diagnosis-input">
+                <span>Provisional Diagnosis / ICD-10 Code</span>
+                <span class="field-hint">Required</span>
+              </label>
+              <input id="diagnosis-input" class="ws-input" type="text" value="Acute Cholecystitis / ICD-10 K81.0" placeholder="e.g., Acute Cholecystitis / ICD-10 K81.0" required />
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="portal-url-input">
+                <span>Target Mock TPA Portal URL</span>
+                <span class="field-hint">Configurable URL</span>
+              </label>
+              <input id="portal-url-input" class="ws-input" type="url" value="https://medverify-tpa-portal.vercel.app/" placeholder="https://medverify-tpa-portal.vercel.app/" required />
+            </div>
+
+            <button type="submit" id="verify-submit-btn" class="ws-submit-btn">
+              <span id="verify-btn-text">Verify Policy &amp; Stage Form (Live SDK)</span>
+              <span class="ws-submit-arrow">&rarr;</span>
+            </button>
+
+            <button type="button" id="guardrail-test-btn" class="ws-secondary-btn">
+              Run Backend URL Guardrail Check (0 Credits)
+            </button>
+          </form>
+        </div>
+
+        <!-- RIGHT COLUMN: 02 / 03 COVERAGE READOUT & 03 / 03 HUMAN REVIEW GATE -->
+        <div class="ws-panel reveal-up in-view">
+          <div class="ws-step-header">
+            <span class="ws-step-title">Coverage Readout &amp; Automation Progress</span>
+            <span id="result-mode-badge" class="ws-step-num">02 / 03 &middot; STANDBY</span>
+          </div>
+
+          <!-- Dynamic Status Banner -->
+          <div id="ws-status-banner" class="ws-status-banner" role="status">
+            <strong>Ready for Verification:</strong> Target portal configured to <code>https://medverify-tpa-portal.vercel.app/</code>. Select a policy preset on the left or switch to <strong>Simulated Demo (0 Credits)</strong> above to preview all confirmed portal outcomes.
+          </div>
+
+          <!-- Three Aligned Coverage Vitals -->
+          <div class="coverage-vitals-grid">
+            <div class="vital-col">
+              <div class="vital-head">
+                <span class="vital-name">Policy Status</span>
+                <span id="chip-status" class="vital-chip">IDLE</span>
+              </div>
+              <div id="val-status" class="vital-reading muted">&mdash;</div>
+              <div id="sub-status" class="vital-subtext">Portal verification state</div>
+            </div>
+
+            <div class="vital-col">
+              <div class="vital-head">
+                <span class="vital-name">Room-Rent Limit</span>
+                <span id="chip-room" class="vital-chip">IDLE</span>
+              </div>
+              <div id="val-room" class="vital-reading muted">&mdash;</div>
+              <div id="sub-room" class="vital-subtext">Daily inpatient cap</div>
+            </div>
+
+            <div class="vital-col">
+              <div class="vital-head">
+                <span class="vital-name">Co-Payment</span>
+                <span id="chip-copay" class="vital-chip">IDLE</span>
+              </div>
+              <div id="val-copay" class="vital-reading muted">&mdash;</div>
+              <div id="sub-copay" class="vital-subtext">Policyholder share %</div>
+            </div>
+          </div>
+
+          <!-- 3-Stage Automation Timeline matching confirmed portal workflow -->
+          <div class="ws-timeline-list" aria-label="Automation Stages">
+            <div id="tl-step-1" class="ws-tl-item">
+              <span class="ws-tl-dot"></span>
+              <div class="ws-tl-body">
+                <div class="ws-tl-top">
+                  <span class="ws-tl-title">01. Policy Search &amp; Coverage Extraction</span>
+                  <span id="tl-badge-1" class="ws-tl-badge">PENDING</span>
+                </div>
+                <div id="tl-desc-1" class="ws-tl-desc">
+                  Opens Policy Search, queries Policy ID, and extracts status, room-rent limit, and co-payment clause.
+                </div>
+              </div>
+            </div>
+
+            <div id="tl-step-2" class="ws-tl-item">
+              <span class="ws-tl-dot"></span>
+              <div class="ws-tl-body">
+                <div class="ws-tl-top">
+                  <span class="ws-tl-title">02. Pre-Authorization Form &amp; Document Staging</span>
+                  <span id="tl-badge-2" class="ws-tl-badge">PENDING</span>
+                </div>
+                <div id="tl-desc-2" class="ws-tl-desc">
+                  Initiates Pre-Authorization, fills Diagnosis &amp; Estimated Cost, and selects Use Sample Document (<code>sample_clinical_document.pdf</code>).
+                </div>
+                <div id="tl-fields-wrap" class="prepared-tags-wrap"></div>
+              </div>
+            </div>
+
+            <div id="tl-step-3" class="ws-tl-item">
+              <span class="ws-tl-dot"></span>
+              <div class="ws-tl-body">
+                <div class="ws-tl-top">
+                  <span class="ws-tl-title">03. Review &amp; Verify Screen Halt</span>
+                  <span id="tl-badge-3" class="ws-tl-badge">LOCKED</span>
+                </div>
+                <div id="tl-desc-3" class="ws-tl-desc">
+                  Navigates to Review &amp; Verify and stops without clicking Submit Pre-Authorization.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 03 / 03 MANDATORY HUMAN REVIEW GATE -->
+          <div id="human-gate" class="human-gate-panel">
+            <div class="human-gate-left">
+              <div class="human-gate-eyebrow">03 / 03 &middot; Mandatory Human Review Stage</div>
+              <div class="human-gate-title">Automatic Submission Permanently Disabled</div>
+              <div id="human-gate-copy" class="human-gate-copy">
+                MedVerify halts at the portal's Review &amp; Verify screen and never clicks Submit Pre-Authorization. A hospital coordinator must review the staged fields before final submission.
+              </div>
+            </div>
+            <div class="human-gate-telemetry">
+              <div>stopped_at_review: <strong id="gate-stopped-val">&mdash;</strong></div>
+              <div>auto_submitted: <strong id="gate-submitted-val" style="color:#10B981;">false (Locked)</strong></div>
+            </div>
+          </div>
+
+          <!-- Raw Python Dictionary Inspector -->
+          <details id="raw-json-details" class="raw-json-details">
+            <summary>Inspect Raw Verification Payload (tinyfish_client.verify_policy)</summary>
+            <pre id="raw-json-pre" class="raw-json-pre">No verification payload recorded yet.</pre>
+          </details>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

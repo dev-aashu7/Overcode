@@ -1,0 +1,696 @@
+/* ============================================================================
+   MedVerify — Cashless Pre-Authorization Desk (Standalone Workspace Styles)
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --charcoal-950: #121211;
+  --charcoal-900: #1A1A18;
+  --alabaster: #F3F2EE;
+  --alabaster-card: #FFFFFF;
+  --ink-900: #141413;
+  --ink-600: #575652;
+  --ink-400: #8C8B85;
+  --accent-vermilion: #FF4D12;
+  --accent-vermilion-hover: #E03E08;
+  --clinical-emerald: #10B981;
+  --clinical-amber: #D97706;
+  --clinical-red: #DC2626;
+  --hairline-dark: rgba(20, 20, 19, 0.12);
+  --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  font-size: 16px;
+  background-color: var(--alabaster);
+  color: var(--ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ============================================================================
+   TOP BAR
+   ============================================================================ */
+.top-nav {
+  width: 100%;
+  padding: 20px 40px 0 40px;
+}
+
+.top-nav-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink-900);
+}
+
+.brand-mark svg {
+  width: 28px;
+  height: 28px;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brand-mark:hover svg {
+  transform: rotate(90deg) scale(1.05);
+}
+
+.brand-mark-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+
+.sandbox-tag {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(20, 20, 19, 0.07);
+  color: var(--ink-600);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.circle-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(20, 20, 19, 0.14);
+  background: var(--charcoal-900);
+  color: #FFFFFF;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease;
+  position: relative;
+}
+
+.circle-btn:hover {
+  transform: translateY(-1px) scale(1.04);
+  background: var(--accent-vermilion);
+  border-color: var(--accent-vermilion);
+}
+
+.circle-btn .status-dot-mini {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 2px var(--charcoal-900);
+}
+
+.circle-btn .status-dot-mini.warn {
+  background: #F59E0B;
+}
+
+/* ============================================================================
+   CASHLESS PRE-AUTHORIZATION WORKSPACE
+   ============================================================================ */
+.workspace-section {
+  background-color: var(--alabaster);
+  color: var(--ink-900);
+  padding: 24px 40px 64px 40px;
+}
+
+.section-container {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.section-tag {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-600);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-tag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--accent-vermilion);
+}
+
+.workspace-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--hairline-dark);
+  margin-bottom: 28px;
+}
+
+.workspace-index {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 4.2vw, 3.6rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--ink-900);
+}
+
+.workspace-index span {
+  color: var(--ink-400);
+  font-weight: 400;
+}
+
+/* Mode Selector Tabs (Live TinyFish vs Clearly Labeled Simulated Demo) */
+.mode-switcher {
+  display: inline-flex;
+  background: #E5E4DF;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-dark);
+}
+
+.mode-tab {
+  border: none;
+  background: transparent;
+  color: var(--ink-600);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.mode-tab.active {
+  background: var(--ink-900);
+  color: #FFFFFF;
+}
+
+/* Simulation Disclaimer Banner */
+.sim-disclaimer-banner {
+  background: #FFFBEB;
+  border: 1px solid #F59E0B;
+  border-left: 5px solid var(--accent-vermilion);
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 24px;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 0.86rem;
+  color: #78350F;
+}
+
+.sim-disclaimer-banner.visible {
+  display: flex;
+}
+
+.sim-scenario-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-btn {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #D97706;
+  background: #FFFFFF;
+  color: #92400E;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.scenario-btn:hover,
+.scenario-btn.active {
+  background: #D97706;
+  color: #FFFFFF;
+}
+
+/* Two-Column Practical Verification Workspace */
+.workspace-split {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.ws-panel {
+  background: var(--alabaster-card);
+  border: 1px solid var(--hairline-dark);
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 4px 20px rgba(20, 20, 19, 0.03);
+}
+
+.ws-step-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--hairline-dark);
+}
+
+.ws-step-num {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--accent-vermilion);
+}
+
+.ws-step-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+
+/* Intake Form Controls */
+.preset-row {
+  margin-bottom: 18px;
+}
+
+.field-group {
+  margin-bottom: 16px;
+}
+
+.field-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-900);
+  margin-bottom: 6px;
+}
+
+.field-hint {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-400);
+  font-weight: 400;
+}
+
+.ws-input,
+.ws-select {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(20, 20, 19, 0.2);
+  background: #FAF9F6;
+  color: var(--ink-900);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.ws-input:focus,
+.ws-select:focus {
+  outline: none;
+  border-color: var(--ink-900);
+  background: #FFFFFF;
+}
+
+.ws-submit-btn {
+  width: 100%;
+  height: 50px;
+  margin-top: 8px;
+  border-radius: 999px;
+  border: none;
+  background: var(--ink-900);
+  color: #FFFFFF;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 22px;
+  cursor: pointer;
+  transition: background-color 0.25s ease, transform 0.2s ease;
+}
+
+.ws-submit-btn:hover:not(:disabled) {
+  background: var(--accent-vermilion);
+  transform: translateY(-1px);
+}
+
+.ws-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ws-submit-arrow {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  color: var(--ink-900);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+}
+
+.ws-secondary-btn {
+  width: 100%;
+  height: 38px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline-dark);
+  background: transparent;
+  color: var(--ink-600);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.ws-secondary-btn:hover {
+  background: rgba(20, 20, 19, 0.05);
+  color: var(--ink-900);
+}
+
+/* Right Workspace Panel: Coverage Metrics, Progress & Review Gate */
+.ws-status-banner {
+  padding: 14px 18px;
+  border-radius: 8px;
+  margin-bottom: 22px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border-left: 4px solid var(--ink-400);
+  background: #F5F4F0;
+  color: var(--ink-900);
+}
+
+.ws-status-banner.tone-ok {
+  border-left-color: var(--clinical-emerald);
+  background: #ECFDF5;
+  color: #065F46;
+}
+
+.ws-status-banner.tone-warn {
+  border-left-color: var(--clinical-amber);
+  background: #FFFBEB;
+  color: #92400E;
+}
+
+.ws-status-banner.tone-err {
+  border-left-color: var(--clinical-red);
+  background: #FEF2F2;
+  color: #991B1B;
+}
+
+.coverage-vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--hairline-dark);
+  border-bottom: 1px solid var(--hairline-dark);
+  padding: 20px 0;
+  margin-bottom: 24px;
+  gap: 18px;
+}
+
+.vital-col {
+  border-right: 1px solid var(--hairline-dark);
+  padding-right: 14px;
+}
+
+.vital-col:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.vital-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.vital-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-600);
+}
+
+.vital-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #EAE9E4;
+  color: var(--ink-600);
+}
+
+.vital-chip.chip-ok {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.vital-chip.chip-warn {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.vital-chip.chip-err {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.vital-reading {
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ink-900);
+  line-height: 1.2;
+}
+
+.vital-reading.muted {
+  color: var(--ink-400);
+  font-weight: 400;
+}
+
+.vital-subtext {
+  font-size: 0.74rem;
+  color: var(--ink-400);
+  margin-top: 4px;
+}
+
+/* Live Automation Timeline inside Workspace */
+.ws-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.ws-tl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #FAF9F6;
+  border: 1px solid var(--hairline-dark);
+}
+
+.ws-tl-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 4px;
+  background: #D6D5CE;
+  flex-shrink: 0;
+}
+
+.ws-tl-item.done .ws-tl-dot { background: var(--clinical-emerald); }
+.ws-tl-item.warn .ws-tl-dot { background: var(--clinical-amber); }
+.ws-tl-item.err .ws-tl-dot { background: var(--clinical-red); }
+
+.ws-tl-body {
+  flex: 1;
+}
+
+.ws-tl-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+.ws-tl-title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.ws-tl-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-600);
+}
+
+.ws-tl-desc {
+  font-size: 0.8rem;
+  color: var(--ink-600);
+  line-height: 1.45;
+}
+
+.prepared-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.prepared-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  background: #FFFFFF;
+  border: 1px solid var(--hairline-dark);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--ink-900);
+}
+
+/* Mandatory Human Review Gate Card (03 / 03) */
+.human-gate-panel {
+  background: var(--charcoal-900);
+  color: #FFFFFF;
+  border-radius: 10px;
+  padding: 20px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.human-gate-left {
+  max-width: 70%;
+}
+
+.human-gate-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-vermilion);
+  margin-bottom: 4px;
+}
+
+.human-gate-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.human-gate-copy {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.45;
+}
+
+.human-gate-telemetry {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
+/* Raw JSON Expander */
+.raw-json-details {
+  margin-top: 18px;
+  border-top: 1px solid var(--hairline-dark);
+  padding-top: 12px;
+}
+
+.raw-json-details summary {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--ink-600);
+  cursor: pointer;
+  user-select: none;
+}
+
+.raw-json-pre {
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--charcoal-950);
+  color: #E2E8F0;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  overflow-x: auto;
+  max-height: 260px;
+}
+
+@media (max-width: 980px) {
+  .workspace-split,
+  .coverage-vitals-grid {
+    grid-template-columns: 1fr;
+  }
+  .vital-col {
+    border-right: none;
+    border-bottom: 1px solid var(--hairline-dark);
+    padding-bottom: 12px;
+  }
+  .human-gate-left {
+    max-width: 100%;
+  }
+}
