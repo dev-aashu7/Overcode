@@ -23,7 +23,7 @@
 
       <div class="nav-actions">
         <!-- Direct Portal Link (Manual Fallback / Inspection) -->
-        <a id="top-portal-link" href="https://medverify-tpa-portal.vercel.app/" target="_blank" rel="noopener noreferrer" class="portal-pill-link" title="Open Deployed Mock TPA Portal">
+        <a id="top-portal-link" href="https://cpth1.vercel.app/" target="_blank" rel="noopener noreferrer" class="portal-pill-link" title="Open Deployed Mock TPA Portal">
           <span>Open Mock TPA Portal</span>
           <span>&nearr;</span>
         </a>
@@ -133,7 +133,7 @@
                   <span>Authorized TPA Portal URL</span>
                   <span class="field-hint">Allowlisted</span>
                 </label>
-                <input id="portal-url-input" class="ws-input" type="url" value="https://medverify-tpa-portal.vercel.app/" placeholder="https://medverify-tpa-portal.vercel.app/" required />
+                <input id="portal-url-input" class="ws-input" type="url" value="https://cpth1.vercel.app/" placeholder="https://cpth1.vercel.app/" required />
               </div>
             </div>
 
@@ -184,9 +184,16 @@
             </div>
 
             <div class="intake-his-note" style="display:flex; align-items:flex-start; gap:8px;">
-              <input id="playwright-fallback-checkbox" type="checkbox" style="margin-top:3px;" />
+              <input id="playwright-fallback-checkbox" type="checkbox" style="margin-top:3px;" checked />
               <label for="playwright-fallback-checkbox" style="cursor:pointer;">
-                <strong>Optional Local Fallback (Headed Chromium):</strong> Used <em>only</em> when TinyFish returns <code>ACCESS_OR_AUTH_BLOCKED</code> on the allowlisted portal. Pauses with status <strong>Waiting for human check</strong> (5m timeout, never bypasses CAPTCHAs) and resumes once <code>Policy Search</code> appears.
+                <strong>Interactive Browser &amp; CAPTCHA Redirect:</strong> Opens visible browser directly on your desktop, automatically navigates to and redirects you to the CAPTCHA screen, pauses for you to check &ldquo;I&rsquo;m not a robot&rdquo;, and resumes automatically upon completion.
+              </label>
+            </div>
+
+            <div class="intake-his-note" style="display:flex; align-items:flex-start; gap:8px;">
+              <input id="auto-submit-checkbox" type="checkbox" style="margin-top:3px;" />
+              <label for="auto-submit-checkbox" style="cursor:pointer;">
+                <strong>Final Submission:</strong> After you pass the CAPTCHA and review the dossier, automatically click <code>Submit Pre-Authorization</code> and capture the official TPA Reference ID. <em>(Leave unchecked to stop at Review &amp; Verify safeguard.)</em>
               </label>
             </div>
 
@@ -214,7 +221,29 @@
 
           <!-- Dynamic Status Banner -->
           <div id="ws-status-banner" class="ws-status-banner" role="status">
-            <strong>Ready for Verification:</strong> Target portal configured to <code>https://medverify-tpa-portal.vercel.app/</code>. Click <strong>Verify Policy &amp; Stage Form (Live SDK)</strong> to launch real TinyFish automation, or click <strong>Preview Selected Policy Outcome (0 Credits)</strong> to inspect simulated outcomes.
+            <strong>Ready for Verification:</strong> Target portal configured to <code>https://cpth1.vercel.app/</code>. Click <strong>Verify Policy &amp; Stage Form (Live SDK)</strong> to launch real TinyFish automation, or click <strong>Preview Selected Policy Outcome (0 Credits)</strong> to inspect simulated outcomes.
+          </div>
+
+          <!-- Human-in-the-Loop (HITL) Challenge Intervention Panel (shown only on HUMAN_ACTION_REQUIRED) -->
+          <div id="hitl-action-bar" class="ws-status-banner tone-warn" style="display:none; margin-top:-6px;" role="region" aria-label="Human-in-the-Loop Intervention Controls">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+              <strong id="hitl-title">Workflow Paused &mdash; Human Action Required (HUMAN_ACTION_REQUIRED)</strong>
+              <span id="hitl-session-badge" class="vital-chip chip-warn">PAUSED FOR HUMAN</span>
+            </div>
+            <div id="hitl-action-text" style="font-size:0.84rem; margin-bottom:10px;">
+              Automated interaction stopped safely at a CAPTCHA, MFA, or login challenge. Complete the verification challenge in the authorized browser session, then continue below or use the manual portal fallback.
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <button type="button" id="btn-hitl-resume" class="ws-submit-btn" style="width:auto; padding:7px 14px; font-size:0.8rem;">
+                Continue After Human Verification &rarr;
+              </button>
+              <button type="button" id="btn-hitl-cancel" class="ws-secondary-btn" style="width:auto; padding:7px 14px; font-size:0.8rem; margin-top:0;">
+                Cancel Session
+              </button>
+              <a id="hitl-manual-link" href="https://cpth1.vercel.app/" target="_blank" rel="noopener noreferrer" class="fallback-btn-link" style="font-size:0.8rem;">
+                Open Manual Portal Fallback &nearr;
+              </a>
+            </div>
           </div>
 
           <!-- Three Aligned Coverage Vitals -->

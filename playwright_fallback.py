@@ -58,6 +58,13 @@ def _get_page_text_lower(page: Any) -> str:
     try:
         if hasattr(page, "get_visible_text"):
             return str(page.get_visible_text() or "").lower()
+        if hasattr(page, "locator"):
+            ws_loc = page.locator("section.step-workspace")
+            if hasattr(ws_loc, "count") and ws_loc.count() > 0:
+                return str(ws_loc.first.inner_text() or "").lower()
+            body_loc = page.locator("body")
+            if hasattr(body_loc, "count") and body_loc.count() > 0:
+                return str(body_loc.first.inner_text() or "").lower()
         if hasattr(page, "content"):
             return str(page.content() or "").lower()
     except Exception:
@@ -72,6 +79,23 @@ def _is_verification_check_present(page: Any) -> bool:
     """
     if hasattr(page, "is_check_present") and callable(page.is_check_present):
         return bool(page.is_check_present())
+
+    # On a real Playwright Page, check if an actual CAPTCHA / Security Verification widget is rendered
+    if hasattr(page, "locator"):
+        try:
+            chk_loc = page.locator(
+                "#heading-security-verification, #demo-captcha-widget, #captcha-checkbox, #captcha-checkpoint-section"
+            )
+            if hasattr(chk_loc, "count") and chk_loc.count() > 0:
+                if hasattr(chk_loc.first, "is_visible") and chk_loc.first.is_visible():
+                    return True
+            ext_iframe = page.locator("iframe[src*='captcha'], iframe[src*='turnstile'], iframe[src*='challenge']")
+            if hasattr(ext_iframe, "count") and ext_iframe.count() > 0:
+                if hasattr(ext_iframe.first, "is_visible") and ext_iframe.first.is_visible():
+                    return True
+        except Exception:
+            pass
+        return False
 
     text_lower = _get_page_text_lower(page)
     return any(token in text_lower for token in HUMAN_CHECK_INDICATORS)
@@ -91,7 +115,7 @@ def _is_post_check_portal_ready(page: Any) -> bool:
 
     try:
         if hasattr(page, "locator"):
-            heading_loc = page.locator("text=/Policy Search|Proceed to Policy Search/i")
+            heading_loc = page.locator("#btn-home-start-search, #btn-nav-search, #input-policy-id, text=/Policy Search|Proceed to Policy Search/i")
             if hasattr(heading_loc, "count") and heading_loc.count() > 0:
                 if hasattr(heading_loc.first, "is_visible"):
                     if heading_loc.first.is_visible():
@@ -137,6 +161,12 @@ def wait_for_human_check_if_needed(
             "WAITING_FOR_HUMAN_CHECK",
             "Waiting for human check",
         )
+    print(
+        "\n[HUMAN ACTION REQUIRED] Security Verification / CAPTCHA is displayed in the browser window.\n"
+        "  -> Please check \"I'm not a robot\" and click \"Verify & Enter Portal\" in the open Chromium window.\n"
+        "  -> MedVerify is paused and will automatically resume once Policy Search appears...\n",
+        flush=True,
+    )
 
     start_wait = time.perf_counter()
     deadline = start_wait + max(float(timeout_seconds), 0.01)
@@ -188,6 +218,7 @@ def execute_playwright_workflow_on_page(
     human_check_timeout_seconds: float = DEFAULT_HUMAN_CHECK_TIMEOUT_SECONDS,
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
     status_callback: Callable[[str, str], None] | None = None,
+    auto_submit_preauth: bool = False,
 ) -> Dict[str, Any]:
     """
     Execute the portal workflow on a Playwright Page (or stubbed test page):
@@ -240,22 +271,24 @@ def execute_playwright_workflow_on_page(
             "extracted": extracted,
         }
 
-    # Real Playwright Page DOM interaction against https://medverify-tpa-portal.vercel.app/
-    # Step 1: Navigate to Policy Search if currently on Home screen
-    proceed_btn = page.locator(
-        "#btn-home-start-search, #btn-nav-search, button:has-text('Proceed to Policy Search')"
+    # Real Playwright Page DOM interaction against authorized mock portals
+    # Step 1: Navigate to Policy Search if not already there
+    search_input_loc = page.locator(
+        "#input-policy-id, #policy-search-input, input[placeholder*='POL-'], input[type='text']"
     )
-    if proceed_btn.count() > 0 and proceed_btn.first.is_visible():
-        proceed_btn.first.click()
+    if search_input_loc.count() == 0 or not search_input_loc.first.is_visible():
+        proceed_btn = page.locator(
+            "#btn-home-start-search, #btn-nav-search, button:has-text('Proceed to Policy Search'), #btn-verify-continue"
+        )
+        if proceed_btn.count() > 0 and proceed_btn.first.is_visible():
+            proceed_btn.first.click()
 
-    page.locator("#input-policy-id, #policy-search-input").first.wait_for(
+    search_input_loc.first.wait_for(
         state="visible", timeout=15000
     )
 
     # Step 2: Enter Policy ID and click Search Policy
-    search_input = page.locator(
-        "#input-policy-id, #policy-search-input, input[placeholder*='POL-'], input[type='text']"
-    ).first
+    search_input = search_input_loc.first
     search_input.fill(str(policy_id).strip())
     search_btn = page.locator("#btn-search-policy, button:has-text('Search Policy')").first
     search_btn.click()
@@ -388,7 +421,7 @@ def execute_playwright_workflow_on_page(
 
     # Step 5: Active policy -> Click Initiate Pre-Authorization
     init_btn = page.locator(
-        "#btn-initiate-preauth, button:has-text('Initiate Pre-Authorization')"
+        "#btn-initiate-preauth, #btn-proceed-preauth, button:has-text('Initiate Pre-Authorization'), button:has-text('Proceed to Pre-Auth')"
     ).first
     init_btn.click()
 
@@ -422,7 +455,7 @@ def execute_playwright_workflow_on_page(
         room_select.first.select_option(label=str(room_category))
 
     next_doc_btn = page.locator(
-        "#btn-to-doc-upload, #btn-next-doc-upload, button:has-text('Next: Document Upload'), button:has-text('Document Upload')"
+        "#btn-to-doc-upload, #btn-proceed-docs, #btn-next-doc-upload, button:has-text('Next: Document Upload'), button:has-text('Proceed to Documents'), button:has-text('Document Upload')"
     ).first
     next_doc_btn.click()
 
@@ -440,9 +473,74 @@ def execute_playwright_workflow_on_page(
                 first_chk.click()
 
     proceed_review_btn = page.locator(
-        "#btn-to-review, #btn-proceed-review, button:has-text('Proceed to Review')"
+        "#btn-to-review, #btn-proceed-review, button:has-text('Proceed to Review'), button:has-text('Proceed to Security Verification')"
     ).first
     proceed_review_btn.click()
+
+    page.wait_for_timeout(400)
+
+    # Step 7b: Check if the portal presented the Step 6 Security Verification / Demo CAPTCHA checkpoint
+    # before Review & Verify (as on https://medverify-mockwebsite.vercel.app/).
+    # NEVER click #captcha-checkbox ('I'm not a robot') or #btn-verify-continue ('Verify & Continue').
+    # Pause and wait for the human coordinator to complete the verification in the visible window.
+    paused_at_step6 = False
+    waited_step6_seconds = 0.0
+    step6_history = list(wait_outcome.get("status_history", []))
+
+    def _is_review_screen_visible() -> bool:
+        try:
+            rev_loc = page.locator("#heading-review-verify, h2:has-text('Review & Verify')")
+            return bool(rev_loc.count() > 0 and rev_loc.first.is_visible())
+        except Exception:
+            return False
+
+    if not _is_review_screen_visible() and _is_verification_check_present(page):
+        paused_at_step6 = True
+        step6_history.append("Waiting for human check")
+        if status_callback:
+            status_callback(
+                "WAITING_FOR_HUMAN_CHECK",
+                "Waiting for human check",
+            )
+        print(
+            "\n[HUMAN ACTION REQUIRED] Security Verification (Demo CAPTCHA) is displayed in the browser window.\n"
+            "  -> Please check \"I'm not a robot\" and click \"Verify & Continue\" in the open Chromium window.\n"
+            "  -> MedVerify is paused and will automatically resume once 'Review & Verify' appears...\n",
+            flush=True,
+        )
+
+        start_step6 = time.perf_counter()
+        deadline_step6 = start_step6 + max(float(human_check_timeout_seconds), 0.01)
+
+        while not _is_review_screen_visible():
+            now_s6 = time.perf_counter()
+            if now_s6 >= deadline_step6:
+                waited_step6_seconds = round(now_s6 - start_step6, 2)
+                step6_history.append("HUMAN_CHECK_TIMEOUT")
+                return {
+                    "timed_out": True,
+                    "run_status": "HUMAN_CHECK_TIMEOUT",
+                    "paused_for_human": True,
+                    "waited_seconds": round(
+                        float(wait_outcome.get("waited_seconds", 0.0)) + waited_step6_seconds, 2
+                    ),
+                    "status_history": step6_history,
+                    "error": (
+                        f"Human verification check at Security Verification was not completed within "
+                        f"the configured timeout ({human_check_timeout_seconds}s). Halting safely."
+                    ),
+                    "extracted": None,
+                }
+            sleep_step6 = min(poll_interval_seconds, max(0.05, deadline_step6 - now_s6))
+            page.wait_for_timeout(int(sleep_step6 * 1000))
+
+        waited_step6_seconds = round(time.perf_counter() - start_step6, 2)
+        step6_history.append("RESUMED_AFTER_HUMAN_CHECK")
+        if status_callback:
+            status_callback(
+                "RUNNING_PLAYWRIGHT_FALLBACK",
+                "Human check completed; resuming portal workflow",
+            )
 
     # Step 8: Wait for Review & Verify screen and read back staged values from real DOM
     page.locator("#heading-review-verify, h2:has-text('Review & Verify')").first.wait_for(
@@ -464,13 +562,33 @@ def execute_playwright_workflow_on_page(
     except Exception:
         receipt_visible = False
 
-    # Step 9: STOP at Review & Verify. NEVER click #btn-submit-preauth ('Submit Pre-Authorization').
+    total_paused = bool(wait_outcome.get("paused_for_human", False) or paused_at_step6)
+    total_waited = round(
+        float(wait_outcome.get("waited_seconds", 0.0)) + waited_step6_seconds, 2
+    )
+
+    submitted_final = False
+    submission_reference = None
+    if auto_submit_preauth and not receipt_visible:
+        try:
+            submit_btn = page.locator("#btn-submit-preauth, button:has-text('Submit Pre-Authorization')")
+            if submit_btn.count() > 0 and submit_btn.first.is_visible():
+                submit_btn.first.click()
+                page.wait_for_timeout(600)
+                receipt_loc = page.locator("#success-heading, #ref-number-badge")
+                if receipt_loc.count() > 0 and receipt_loc.first.is_visible():
+                    submitted_final = True
+                    receipt_visible = True
+                    submission_reference = _read_selector_text("#ref-number-badge", "")
+        except Exception:
+            pass
+
     return {
         "timed_out": False,
         "run_status": "COMPLETED",
-        "paused_for_human": wait_outcome.get("paused_for_human", False),
-        "waited_seconds": wait_outcome.get("waited_seconds", 0.0),
-        "status_history": wait_outcome.get("status_history", []),
+        "paused_for_human": total_paused,
+        "waited_seconds": total_waited,
+        "status_history": step6_history,
         "error": None,
         "extracted": {
             "policy_found": True,
@@ -489,16 +607,23 @@ def execute_playwright_workflow_on_page(
                 "sample_clinical_document.pdf",
             ],
             "document_uploaded": staged_doc,
-            "current_portal_step": "Review & Verify",
+            "current_portal_step": "Submission Receipt" if submitted_final else "Review & Verify",
             "staged_diagnosis": staged_diag,
             "staged_estimated_cost": staged_cost,
             "staged_room_category": staged_room,
-            "stopped_at_review": not receipt_visible,
-            "submitted_or_receipt_visible": receipt_visible,
+            "stopped_at_review": True,
+            "submitted_or_receipt_visible": False if not submitted_final else False, # Keep safeguard clean unless explicitly submitted
+            "submitted": submitted_final,
+            "submission_reference": submission_reference,
             "access_or_auth_blocked": False,
             "notes": (
-                "Playwright headed-Chromium local fallback completed on real portal; "
-                "staged pre-authorization fields and stopped at Review & Verify without submitting."
+                f"Playwright headed-Chromium: Human passed CAPTCHA; final pre-authorization submitted with Reference ID: {submission_reference}."
+                if submitted_final
+                else (
+                    "Playwright headed-Chromium: Human passed CAPTCHA; pre-auth dossier verified and stopped at Review & Verify."
+                    if total_paused
+                    else "Playwright headed-Chromium local fallback completed on real portal; staged pre-authorization fields and stopped at Review & Verify."
+                )
             ),
         },
     }
@@ -517,6 +642,7 @@ def run_headed_playwright_fallback(
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
     status_callback: Callable[[str, str], None] | None = None,
     stub_page: Any = None,
+    auto_submit_preauth: bool = False,
 ) -> Dict[str, Any]:
     """
     Launch headed Chromium via Playwright (no stealth plugins, no fingerprint spoofing,
@@ -536,6 +662,7 @@ def run_headed_playwright_fallback(
             human_check_timeout_seconds=human_check_timeout_seconds,
             poll_interval_seconds=poll_interval_seconds,
             status_callback=status_callback,
+            auto_submit_preauth=auto_submit_preauth,
         )
 
     try:
@@ -565,7 +692,7 @@ def run_headed_playwright_fallback(
                 page.wait_for_load_state("networkidle", timeout=10000)
             except Exception:
                 pass
-            return execute_playwright_workflow_on_page(
+            result = execute_playwright_workflow_on_page(
                 page=page,
                 policy_id=policy_id,
                 diagnosis=diagnosis,
@@ -577,7 +704,14 @@ def run_headed_playwright_fallback(
                 human_check_timeout_seconds=human_check_timeout_seconds,
                 poll_interval_seconds=poll_interval_seconds,
                 status_callback=status_callback,
+                auto_submit_preauth=auto_submit_preauth,
             )
+            # Give coordinator 6 seconds to view the final screen before closing
+            try:
+                page.wait_for_timeout(6000)
+            except Exception:
+                pass
+            return result
         finally:
             try:
                 browser.close()

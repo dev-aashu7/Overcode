@@ -19,3 +19,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Runtime logs & scratch
+runs_log.jsonl
+Overcode/
+eo.html
+med.py
+*.tmp

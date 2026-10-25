@@ -1,12 +1,12 @@
 /* ============================================================================
    MedVerify — Cashless Pre-Authorization Desk Client
-   Configured for https://medverify-tpa-portal.vercel.app/
+   Configured for https://cpth1.vercel.app/
    ============================================================================ */
 
 (function () {
   "use strict";
 
-  const DEFAULT_PORTAL_URL = "https://medverify-tpa-portal.vercel.app/";
+  const DEFAULT_PORTAL_URL = "https://cpth1.vercel.app/";
 
   // --------------------------------------------------------------------------
   // 1. BACKEND HEALTH TELEMETRY
@@ -85,6 +85,9 @@
 
   let currentMode = "live"; // "live" | "simulated"
   let liveTimerInterval = null;
+  let activeHitlSessionId = null;
+  let activeHitlPolicyId = null;
+  let activeHitlPortalUrl = DEFAULT_PORTAL_URL;
 
   function buildActiveChecks(pid, name, roomLimit, copay, diag, costInputStr, stagedCostStr, roomCat, stagedRoomCat, docName, stopped, submitted) {
     const costMatch = String(costInputStr).replace(/[^\d]/g, "") === String(stagedCostStr).replace(/[^\d]/g, "");
@@ -573,6 +576,11 @@
       clearInterval(liveTimerInterval);
       liveTimerInterval = null;
     }
+    activeHitlSessionId = null;
+    const hitlActionBar = document.getElementById("hitl-action-bar");
+    if (hitlActionBar) {
+      hitlActionBar.style.display = "none";
+    }
     const modeBadge = document.getElementById("result-mode-badge");
     const banner = document.getElementById("ws-status-banner");
 
@@ -618,7 +626,7 @@
       banner.className = "ws-status-banner" + (bannerTone ? " " + bannerTone : "");
       banner.innerHTML =
         statusMessageHtml ||
-        "<strong>Ready for Verification:</strong> Click <strong>Verify Policy &amp; Stage Form (Live SDK)</strong> to launch real TinyFish automation against <code>https://medverify-tpa-portal.vercel.app/</code>.";
+        "<strong>Ready for Verification:</strong> Click <strong>Verify Policy &amp; Stage Form (Live SDK)</strong> to launch real TinyFish automation against <code>https://cpth1.vercel.app/</code>.";
     }
 
     if (valStatus) {
@@ -947,29 +955,114 @@
       }
     }
 
-    // CASE 1: Policy NOT found or guardrail/auth/SDK error (policy_found === false)
+    // CASE 1: Policy NOT found or guardrail/auth/HITL/SDK halt (policy_found === false)
     if (!policyFound) {
-      if (banner) {
-        banner.className = "ws-status-banner tone-err";
-        banner.innerHTML =
-          "<strong>" +
-          (isSim ? "[Simulated Demo] " : "") +
-          "Verification Halted (" +
-          (data.run_status || "FAILED") +
-          "):</strong> " +
-          (data.error || "Policy lookup did not succeed.") +
-          " No coverage values were fabricated.";
-      }
+      const isHitl =
+        data.run_status === "HUMAN_ACTION_REQUIRED" || Boolean(data.human_action_required);
+      const isCancelled = data.run_status === "USER_CANCELLED";
+      const isSessionLost = data.run_status === "SESSION_EXPIRED_OR_UNAVAILABLE";
+      const hitlMeta = data.human_intervention || {};
+      const hitlActionBar = document.getElementById("hitl-action-bar");
+      const hitlActionText = document.getElementById("hitl-action-text");
+      const hitlSessionBadge = document.getElementById("hitl-session-badge");
+      const btnHitlResume = document.getElementById("btn-hitl-resume");
+      const hitlManualLink = document.getElementById("hitl-manual-link");
 
-      if (valStatus) {
-        valStatus.textContent = pStatus || "Unverified";
-        valStatus.className = "vital-reading" + (pStatus ? "" : " muted");
+      if (isHitl) {
+        activeHitlSessionId = data.session_id || hitlMeta.session_id || null;
+        activeHitlPolicyId = data.policy_id || "";
+        activeHitlPortalUrl = fallbackUrl;
+        const canResume = Boolean(
+          data.can_resume_same_session || hitlMeta.can_resume_same_session
+        );
+        const actionMsg =
+          hitlMeta.action_required ||
+          data.error ||
+          "Complete the CAPTCHA, MFA, or login challenge in the active browser session, then click Continue After Human Verification or use the Manual Portal Fallback.";
+
+        if (banner) {
+          banner.className = "ws-status-banner tone-warn";
+          banner.innerHTML =
+            "<strong>Workflow Paused — Human Action Required (HUMAN_ACTION_REQUIRED):</strong> " +
+            actionMsg;
+        }
+        if (hitlActionBar) {
+          hitlActionBar.style.display = "block";
+        }
+        if (hitlActionText) {
+          hitlActionText.textContent =
+            (hitlMeta.challenge_reason ? hitlMeta.challenge_reason + " — " : "") + actionMsg;
+        }
+        if (hitlSessionBadge) {
+          hitlSessionBadge.textContent = canResume
+            ? "SESSION ACTIVE: " + activeHitlSessionId
+            : "NO SAME-SESSION HANDLE (USE MANUAL FALLBACK)";
+        }
+        if (btnHitlResume) {
+          btnHitlResume.disabled = false;
+          btnHitlResume.style.opacity = "1";
+          btnHitlResume.textContent = canResume
+            ? "Continue After Human Verification →"
+            : "Complete CAPTCHA in Browser & Continue →";
+        }
+        if (hitlManualLink && fallbackUrl.startsWith("http")) {
+          hitlManualLink.href = fallbackUrl;
+        }
+
+        if (valStatus) {
+          valStatus.textContent = "Human Action Required";
+          valStatus.className = "vital-reading";
+        }
+        if (chipStatus) {
+          chipStatus.textContent = "HUMAN ACTION";
+          chipStatus.className = "vital-chip chip-warn";
+        }
+        if (subStatus) {
+          subStatus.textContent = canResume
+            ? "Paused in session " + activeHitlSessionId
+            : "Paused at portal access challenge";
+        }
+        if (tlStep1) tlStep1.classList.add("warn");
+        if (tlBadge1) tlBadge1.textContent = "HUMAN_ACTION_REQUIRED";
+        if (tlDesc1) tlDesc1.textContent = actionMsg;
+      } else {
+        if (banner) {
+          banner.className = "ws-status-banner tone-err";
+          banner.innerHTML =
+            "<strong>" +
+            (isSim ? "[Simulated Demo] " : "") +
+            "Verification Halted (" +
+            (data.run_status || "FAILED") +
+            "):</strong> " +
+            (data.error || "Policy lookup did not succeed.") +
+            " No coverage values were fabricated.";
+        }
+
+        if (valStatus) {
+          valStatus.textContent = isCancelled
+            ? "Cancelled by User"
+            : isSessionLost
+            ? "Session Expired"
+            : pStatus || "Unverified";
+          valStatus.className = "vital-reading" + (pStatus || isCancelled || isSessionLost ? "" : " muted");
+        }
+        if (chipStatus) {
+          chipStatus.textContent =
+            data.run_status === "NOT_FOUND"
+              ? "NOT FOUND"
+              : isCancelled
+              ? "CANCELLED"
+              : isSessionLost
+              ? "SESSION LOST"
+              : "ERROR";
+          chipStatus.className = "vital-chip chip-err";
+        }
+        if (subStatus) subStatus.textContent = "Run status: " + (data.run_status || "FAILED");
+
+        if (tlStep1) tlStep1.classList.add("err");
+        if (tlBadge1) tlBadge1.textContent = data.run_status || "FAILED";
+        if (tlDesc1) tlDesc1.textContent = data.error || "Policy lookup did not succeed.";
       }
-      if (chipStatus) {
-        chipStatus.textContent = data.run_status === "NOT_FOUND" ? "NOT FOUND" : "ERROR";
-        chipStatus.className = "vital-chip chip-err";
-      }
-      if (subStatus) subStatus.textContent = "Run status: " + (data.run_status || "FAILED");
 
       if (valRoom) {
         valRoom.textContent = "—";
@@ -989,12 +1082,12 @@
         chipCopay.className = "vital-chip";
       }
 
-      if (tlStep1) tlStep1.classList.add("err");
-      if (tlBadge1) tlBadge1.textContent = data.run_status || "FAILED";
-      if (tlDesc1) tlDesc1.textContent = data.error || "Policy lookup did not succeed.";
-
-      if (tlBadge2) tlBadge2.textContent = "SKIPPED";
-      if (tlDesc2) tlDesc2.textContent = "Pre-authorization form & document staging skipped because policy lookup failed.";
+      if (tlBadge2) tlBadge2.textContent = isHitl ? "PAUSED" : "SKIPPED";
+      if (tlDesc2) {
+        tlDesc2.textContent = isHitl
+          ? "Awaiting human challenge completion before staging pre-authorization fields."
+          : "Pre-authorization form & document staging skipped because policy lookup failed.";
+      }
 
       if (tlBadge3) tlBadge3.textContent = "NOT REACHED";
       if (tlDesc3) tlDesc3.textContent = "Workflow halted before Review & Verify.";
@@ -1395,6 +1488,10 @@
         return;
       }
 
+      const autoSubmitCheckbox = document.getElementById("auto-submit-checkbox");
+      const useBrowserDirect = playwrightFallbackCheckbox ? Boolean(playwrightFallbackCheckbox.checked) : true;
+      const doFinalSubmit = autoSubmitCheckbox ? Boolean(autoSubmitCheckbox.checked) : false;
+
       executeBackendVerification({
         policy_id: policyIdInput ? policyIdInput.value : "",
         diagnosis: diagnosisInput ? diagnosisInput.value : "",
@@ -1402,8 +1499,99 @@
         room_category: roomCategorySelect ? roomCategorySelect.value : "Semi-Private",
         use_sample_document: sampleDocSelect ? sampleDocSelect.value === "true" : true,
         portal_url: portalUrlInput ? portalUrlInput.value : DEFAULT_PORTAL_URL,
-        enable_playwright_fallback: playwrightFallbackCheckbox ? Boolean(playwrightFallbackCheckbox.checked) : false
+        enable_playwright_fallback: useBrowserDirect,
+        use_tinyfish_browser_session: useBrowserDirect,
+        auto_submit_preauth: doFinalSubmit
       });
+    });
+  }
+
+  // Human-in-the-Loop Resume & Cancel Controls
+  const btnHitlResumeEl = document.getElementById("btn-hitl-resume");
+  const btnHitlCancelEl = document.getElementById("btn-hitl-cancel");
+
+  async function executeHitlResume(sessionIdOverride) {
+    const sid = sessionIdOverride || activeHitlSessionId || "";
+    if (!sid) {
+      // If no persistent session ID was opened, launch/resume interactive browser verification
+      return executeBackendVerification({
+        policy_id: policyIdInput ? policyIdInput.value : "POL-100245",
+        diagnosis: diagnosisInput ? diagnosisInput.value : "Acute Cholecystitis / ICD-10 K81.0",
+        estimated_cost: costInput ? Number(costInput.value) : 85000,
+        room_category: roomCategorySelect ? roomCategorySelect.value : "Semi-Private",
+        use_sample_document: sampleDocSelect ? sampleDocSelect.value === "true" : true,
+        portal_url: portalUrlInput ? portalUrlInput.value : DEFAULT_PORTAL_URL,
+        use_tinyfish_browser_session: true
+      });
+    }
+    try {
+      const res = await fetch("/api/verify/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid })
+      });
+      const data = await res.json();
+      renderVerificationResult(data);
+      return data;
+    } catch (err) {
+      const fallbackData = {
+        success: false,
+        run_status: "SESSION_EXPIRED_OR_UNAVAILABLE",
+        session_id: sid,
+        policy_id: activeHitlPolicyId || "",
+        portal_url: activeHitlPortalUrl || DEFAULT_PORTAL_URL,
+        manual_fallback_url: activeHitlPortalUrl || DEFAULT_PORTAL_URL,
+        policy_found: false,
+        stopped_at_review: false,
+        submitted: false,
+        error: "Could not resume session (/api/verify/resume): " + err.message
+      };
+      renderVerificationResult(fallbackData);
+      return fallbackData;
+    }
+  }
+
+  async function executeHitlCancel(sessionIdOverride) {
+    const sid = sessionIdOverride || activeHitlSessionId || "";
+    try {
+      const res = await fetch("/api/verify/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sid,
+          policy_id: activeHitlPolicyId || (policyIdInput ? policyIdInput.value : ""),
+          portal_url: activeHitlPortalUrl || (portalUrlInput ? portalUrlInput.value : DEFAULT_PORTAL_URL)
+        })
+      });
+      const data = await res.json();
+      renderVerificationResult(data);
+      return data;
+    } catch (err) {
+      const cancelData = {
+        success: false,
+        run_status: "USER_CANCELLED",
+        session_id: sid,
+        policy_id: activeHitlPolicyId || "",
+        portal_url: activeHitlPortalUrl || DEFAULT_PORTAL_URL,
+        manual_fallback_url: activeHitlPortalUrl || DEFAULT_PORTAL_URL,
+        policy_found: false,
+        stopped_at_review: false,
+        submitted: false,
+        error: "Session cancelled by coordinator."
+      };
+      renderVerificationResult(cancelData);
+      return cancelData;
+    }
+  }
+
+  if (btnHitlResumeEl) {
+    btnHitlResumeEl.addEventListener("click", function () {
+      executeHitlResume();
+    });
+  }
+  if (btnHitlCancelEl) {
+    btnHitlCancelEl.addEventListener("click", function () {
+      executeHitlCancel();
     });
   }
 
@@ -1433,6 +1621,8 @@
       renderWaitingForHumanCheck: renderWaitingForHumanCheck,
       renderVerificationResult: renderVerificationResult,
       setExecutionMode: setExecutionMode,
+      executeHitlResume: executeHitlResume,
+      executeHitlCancel: executeHitlCancel,
       SIMULATED_SCENARIOS: SIMULATED_SCENARIOS
     };
   }

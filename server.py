@@ -28,7 +28,9 @@ from tinyfish_client import (
     DEFAULT_PORTAL_URL,
     TIMING_END_BOUNDARY,
     TIMING_START_BOUNDARY,
+    cancel_verification_session,
     load_env_file,
+    resume_verification_session,
     verify_policy,
 )
 
@@ -213,7 +215,7 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/api/verify":
+        if parsed.path not in ("/api/verify", "/api/verify/resume", "/api/verify/cancel"):
             self._send_json(404, {"success": False, "error": "Unknown API endpoint."})
             return
 
@@ -231,6 +233,17 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
                     "submitted": False,
                 },
             )
+            return
+
+        if parsed.path == "/api/verify/cancel":
+            cancel_res = cancel_verification_session(
+                session_id=str(data.get("session_id") or ""),
+                policy_id=str(data.get("policy_id") or ""),
+                portal_url=str(data.get("portal_url") or DEFAULT_PORTAL_URL),
+            )
+            _update_live_run_status("IDLE", "Idle")
+            _append_run_log(cancel_res)
+            self._send_json(200, cancel_res)
             return
 
         if not VERIFY_RUN_LOCK.acquire(blocking=False):
@@ -255,24 +268,40 @@ class MedVerifyRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        _update_live_run_status("RUNNING_TINYFISH", "Running TinyFish Cloud Agent")
-        try:
-            result = verify_policy(
-                policy_id=data.get("policy_id", ""),
-                diagnosis=data.get("diagnosis", ""),
-                estimated_cost=data.get("estimated_cost", ""),
-                portal_url=data.get("portal_url", DEFAULT_PORTAL_URL),
-                room_category=data.get("room_category", "Semi-Private"),
-                hospital_name=data.get("hospital_name", "Apollo Care Superspecialty Hospital"),
-                doctor_name=data.get("doctor_name", "Dr. Rajesh K. Mehta"),
-                use_sample_document=bool(data.get("use_sample_document", True)),
-                enable_playwright_fallback=bool(data.get("enable_playwright_fallback", False)),
-                human_check_timeout_seconds=float(data.get("human_check_timeout_seconds", 300.0)),
-                status_callback=_update_live_run_status,
-            )
-        finally:
-            _update_live_run_status("IDLE", "Idle")
-            VERIFY_RUN_LOCK.release()
+        if parsed.path == "/api/verify/resume":
+            _update_live_run_status("RESUMING_AFTER_HUMAN_ACTION", "Resuming portal workflow in existing session")
+            try:
+                result = resume_verification_session(
+                    session_id=str(data.get("session_id") or ""),
+                    status_callback=_update_live_run_status,
+                )
+            finally:
+                _update_live_run_status("IDLE", "Idle")
+                VERIFY_RUN_LOCK.release()
+        else:
+            _update_live_run_status("RUNNING_TINYFISH", "Running TinyFish Cloud Agent")
+            try:
+                result = verify_policy(
+                    policy_id=data.get("policy_id", ""),
+                    diagnosis=data.get("diagnosis", ""),
+                    estimated_cost=data.get("estimated_cost", ""),
+                    portal_url=data.get("portal_url", DEFAULT_PORTAL_URL),
+                    room_category=data.get("room_category", "Semi-Private"),
+                    hospital_name=data.get("hospital_name", "Apollo Care Superspecialty Hospital"),
+                    doctor_name=data.get("doctor_name", "Dr. Rajesh K. Mehta"),
+                    use_sample_document=bool(data.get("use_sample_document", True)),
+                    enable_playwright_fallback=bool(data.get("enable_playwright_fallback", False)),
+                    auto_submit_preauth=bool(data.get("auto_submit_preauth", False)),
+                    human_check_timeout_seconds=float(data.get("human_check_timeout_seconds", 300.0)),
+                    status_callback=_update_live_run_status,
+                    use_tinyfish_browser_session=bool(data.get("use_tinyfish_browser_session", False)),
+                    use_profile=data.get("use_profile"),
+                    profile_id=data.get("profile_id"),
+                )
+            finally:
+                _update_live_run_status("IDLE", "Idle")
+                VERIFY_RUN_LOCK.release()
+
         _append_run_log(result)
         stats = _compute_live_timing_stats()
         if isinstance(result.get("timing"), dict):

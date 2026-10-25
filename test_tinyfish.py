@@ -34,7 +34,14 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from tinyfish import RunStatus
-from tinyfish_client import DEFAULT_PORTAL_URL, POLICY_SCHEMA, verify_policy
+from tinyfish_client import (
+    ACTIVE_HITL_SESSIONS,
+    DEFAULT_PORTAL_URL,
+    POLICY_SCHEMA,
+    cancel_verification_session,
+    resume_verification_session,
+    verify_policy,
+)
 
 
 MOCK_PORTAL_RESPONSES = {
@@ -232,7 +239,9 @@ const ids = [
   'sim-banner', 'preset-select', 'policy-id-input', 'cost-input', 'diagnosis-input',
   'room-category-select', 'sample-doc-select', 'portal-url-input', 'verify-form',
   'verify-submit-btn', 'verify-btn-text', 'guardrail-test-btn', 'result-mode-badge',
-  'ws-status-banner', 'chip-status', 'val-status', 'sub-status', 'chip-room', 'val-room',
+  'ws-status-banner', 'hitl-action-bar', 'hitl-title', 'hitl-session-badge',
+  'hitl-action-text', 'btn-hitl-resume', 'btn-hitl-cancel', 'hitl-manual-link',
+  'chip-status', 'val-status', 'sub-status', 'chip-room', 'val-room',
   'sub-room', 'chip-copay', 'val-copay', 'sub-copay', 'ev-portal-step', 'ev-staged-summary',
   'ev-accuracy', 'ev-prep-time', 'audit-summary-badge', 'audit-table-body', 'tl-step-1',
   'tl-badge-1', 'tl-desc-1', 'tl-step-2', 'tl-badge-2', 'tl-desc-2', 'tl-fields-wrap',
@@ -667,7 +676,7 @@ def run_local_checks() -> None:
             f"run_status: {inc_res.get('run_status')} | not_verified_count: {inc_acc.get('not_verified_count')}",
         )
 
-        # Test 13: Login / CAPTCHA / Access Restriction Detected (ACCESS_OR_AUTH_BLOCKED)
+        # Test 13: Login / CAPTCHA / Access Restriction Detected -> HUMAN_ACTION_REQUIRED
         auth_blocked_payload = dict(
             MOCK_PORTAL_RESPONSES["POL-100245"],
             policy_found=False,
@@ -683,15 +692,21 @@ def run_local_checks() -> None:
                 estimated_cost=85000,
                 portal_url=DEFAULT_PORTAL_URL,
             )
+        auth_hitl = auth_res.get("human_intervention") or {}
         auth_passed = (
             auth_res.get("success") is False
-            and auth_res.get("run_status") == "ACCESS_OR_AUTH_BLOCKED"
+            and auth_res.get("run_status") == "HUMAN_ACTION_REQUIRED"
+            and auth_res.get("legacy_run_status") == "ACCESS_OR_AUTH_BLOCKED"
+            and auth_res.get("paused_for_human_check") is True
+            and auth_res.get("stopped_at_review") is False
+            and auth_res.get("submitted") is False
+            and auth_hitl.get("required") is True
             and auth_res.get("manual_fallback_url") == DEFAULT_PORTAL_URL
         )
         record(
-            "13. Login / CAPTCHA / Access Barrier Detected (ACCESS_OR_AUTH_BLOCKED)",
+            "13. Login / CAPTCHA / Access Barrier Detected (HUMAN_ACTION_REQUIRED + manual_fallback_url)",
             auth_passed,
-            f"run_status: {auth_res.get('run_status')} | fallback: {auth_res.get('manual_fallback_url')}",
+            f"run_status: {auth_res.get('run_status')} | legacy: {auth_res.get('legacy_run_status')} | fallback: {auth_res.get('manual_fallback_url')}",
         )
 
         # Test 14: Timeout Exception Handling (TIMEOUT + manual fallback URL)
@@ -962,6 +977,206 @@ def run_local_checks() -> None:
             "30. Concurrency & Status Guard: /api/status answers during wait & VERIFY_RUN_LOCK prevents overlapping runs",
             concurrency_ok,
             f"status_during_wait: '{status_during_wait.get('status')}' | second_lock_blocked: {not acquired_second}",
+        )
+
+        # Test 31: Same-Session Human-in-the-Loop Pause via TinyFish Browser API (client.browser.sessions.create)
+        stub_hitl_page = StubPlaywrightPage(mode="check_then_completed", human_complete_after_polls=1)
+        fake_browser_session = SimpleNamespace(
+            session_id="sess-tf-hitl-001",
+            cdp_url="wss://browser.tinyfish.ai/cdp/sess-tf-hitl-001",
+            base_url="https://browser.tinyfish.ai/sessions/sess-tf-hitl-001",
+        )
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            mock_tf_cls.return_value.browser.sessions.create.return_value = fake_browser_session
+            hitl_pause_res = verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                use_tinyfish_browser_session=True,
+                playwright_stub_page=stub_hitl_page,
+            )
+        hitl_meta = hitl_pause_res.get("human_intervention") or {}
+        hitl_pause_ok = (
+            hitl_pause_res.get("success") is False
+            and hitl_pause_res.get("run_status") == "HUMAN_ACTION_REQUIRED"
+            and hitl_meta.get("required") is True
+            and hitl_meta.get("can_resume_same_session") is True
+            and hitl_meta.get("session_id") == "sess-tf-hitl-001"
+            and "sess-tf-hitl-001" in ACTIVE_HITL_SESSIONS
+            and hitl_pause_res.get("stopped_at_review") is False
+            and hitl_pause_res.get("submitted") is False
+        )
+        record(
+            "31. TinyFish Browser API (client.browser.sessions.create) Same-Session Pause -> HUMAN_ACTION_REQUIRED",
+            hitl_pause_ok,
+            f"run_status: {hitl_pause_res.get('run_status')} | session_id: {hitl_meta.get('session_id')} | can_resume: {hitl_meta.get('can_resume_same_session')}",
+        )
+
+        # Test 32: Same-Session Continuation (resume_verification_session):
+        #   (a) Early resume while challenge still visible keeps session alive & returns HUMAN_ACTION_REQUIRED
+        #   (b) After human completes challenge ('Policy Search' visible), resumes same session, verifies landmark & policy ID, passes 11/11 checks, stops at Review & Verify
+        early_resume_res = resume_verification_session("sess-tf-hitl-001")
+        early_still_paused = (
+            early_resume_res.get("success") is False
+            and early_resume_res.get("run_status") == "HUMAN_ACTION_REQUIRED"
+            and "sess-tf-hitl-001" in ACTIVE_HITL_SESSIONS
+        )
+        # Simulate human completing the CAPTCHA/auth challenge in the preserved session
+        stub_hitl_page.wait_for_timeout(500)
+        resumed_ok_res = resume_verification_session("sess-tf-hitl-001")
+        resumed_acc = resumed_ok_res.get("field_accuracy") or {}
+        resume_success_ok = (
+            early_still_paused
+            and resumed_ok_res.get("success") is True
+            and resumed_ok_res.get("run_status") == "COMPLETED"
+            and resumed_ok_res.get("resumed_from_human_intervention") is True
+            and resumed_ok_res.get("session_id") == "sess-tf-hitl-001"
+            and "sess-tf-hitl-001" not in ACTIVE_HITL_SESSIONS
+            and resumed_ok_res.get("stopped_at_review") is True
+            and resumed_ok_res.get("submitted") is False
+            and resumed_acc.get("verified") is True
+            and resumed_acc.get("passed_count") == 11
+        )
+        record(
+            "32. Same-Session Continuation (resume_verification_session): Re-checks landmark & policy ID, 11/11 PASS, stops at Review",
+            resume_success_ok,
+            f"early_paused: {early_still_paused} | resumed_status: {resumed_ok_res.get('run_status')} | checks: {resumed_acc.get('passed_count')}/11 | submitted: {resumed_ok_res.get('submitted')}",
+        )
+
+        # Test 33: Expired or Unavailable Session -> SESSION_EXPIRED_OR_UNAVAILABLE + manual fallback
+        stub_exp_page = StubPlaywrightPage(mode="check_then_completed", human_complete_after_polls=5)
+        fake_exp_session = SimpleNamespace(
+            session_id="sess-tf-expired-002",
+            cdp_url="wss://browser.tinyfish.ai/cdp/sess-tf-expired-002",
+            base_url="https://browser.tinyfish.ai/sessions/sess-tf-expired-002",
+        )
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            mock_tf_cls.return_value.browser.sessions.create.return_value = fake_exp_session
+            verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                use_tinyfish_browser_session=True,
+                playwright_stub_page=stub_exp_page,
+            )
+        # Force expiration of registered session
+        ACTIVE_HITL_SESSIONS["sess-tf-expired-002"]["expires_at_epoch"] = 0.0
+        exp_res = resume_verification_session("sess-tf-expired-002")
+        missing_sess_res = resume_verification_session("sess-nonexistent-999")
+        expired_ok = (
+            exp_res.get("success") is False
+            and exp_res.get("run_status") == "SESSION_EXPIRED_OR_UNAVAILABLE"
+            and exp_res.get("manual_fallback_url") == DEFAULT_PORTAL_URL
+            and exp_res.get("submitted") is False
+            and "sess-tf-expired-002" not in ACTIVE_HITL_SESSIONS
+            and missing_sess_res.get("run_status") == "SESSION_EXPIRED_OR_UNAVAILABLE"
+        )
+        record(
+            "33. Expired or Unavailable Session returns SESSION_EXPIRED_OR_UNAVAILABLE + manual_fallback_url",
+            expired_ok,
+            f"expired_status: {exp_res.get('run_status')} | missing_status: {missing_sess_res.get('run_status')} | fallback: {exp_res.get('manual_fallback_url')}",
+        )
+
+        # Test 34: User Cancellation (cancel_verification_session) -> USER_CANCELLED + session terminated
+        stub_cancel_page = StubPlaywrightPage(mode="check_then_completed", human_complete_after_polls=5)
+        fake_cancel_session = SimpleNamespace(
+            session_id="sess-tf-cancel-003",
+            cdp_url="wss://browser.tinyfish.ai/cdp/sess-tf-cancel-003",
+            base_url="https://browser.tinyfish.ai/sessions/sess-tf-cancel-003",
+        )
+        with patch("tinyfish_client.TinyFish") as mock_tf_cls:
+            mock_tf_cls.return_value.agent.run.return_value = fake_auth_run
+            mock_tf_cls.return_value.browser.sessions.create.return_value = fake_cancel_session
+            verify_policy(
+                policy_id="POL-100245",
+                diagnosis="Acute Cholecystitis / ICD-10 K81.0",
+                estimated_cost=85000,
+                room_category="Semi-Private",
+                portal_url=DEFAULT_PORTAL_URL,
+                use_tinyfish_browser_session=True,
+                playwright_stub_page=stub_cancel_page,
+            )
+        cancel_res = cancel_verification_session("sess-tf-cancel-003")
+        cancel_ok = (
+            cancel_res.get("success") is False
+            and cancel_res.get("run_status") == "USER_CANCELLED"
+            and cancel_res.get("cancelled_by_user") is True
+            and cancel_res.get("stopped_at_review") is False
+            and cancel_res.get("submitted") is False
+            and cancel_res.get("manual_fallback_url") == DEFAULT_PORTAL_URL
+            and "sess-tf-cancel-003" not in ACTIVE_HITL_SESSIONS
+        )
+        record(
+            "34. User Cancellation (cancel_verification_session) terminates session & returns USER_CANCELLED",
+            cancel_ok,
+            f"run_status: {cancel_res.get('run_status')} | cancelled_by_user: {cancel_res.get('cancelled_by_user')}",
+        )
+
+        # Test 35: Post-Resume Policy Mismatch & Review-Stop Safeguard Enforcement
+        class _WrongPolicyAfterResumeStub(StubPlaywrightPage):
+            def execute_portal_steps(self, *args, **kwargs) -> dict:
+                data = super().execute_portal_steps(*args, **kwargs)
+                data["extracted_policy_id"] = "POL-205118"  # Wrong policy opened during human intervention
+                return data
+
+        class _ReceiptAfterResumeStub(StubPlaywrightPage):
+            def execute_portal_steps(self, *args, **kwargs) -> dict:
+                data = super().execute_portal_steps(*args, **kwargs)
+                data["submitted_or_receipt_visible"] = True
+                data["current_portal_step"] = "Submission Receipt"
+                return data
+
+        stub_wrong_pol = _WrongPolicyAfterResumeStub(mode="no_check")
+        stub_receipt = _ReceiptAfterResumeStub(mode="no_check")
+        ACTIVE_HITL_SESSIONS["sess-wrong-pol"] = {
+            "session_id": "sess-wrong-pol",
+            "session_type": "tinyfish_browser_session",
+            "created_at_epoch": 9999999999.0,
+            "expires_at_epoch": 9999999999.0,
+            "portal_url": DEFAULT_PORTAL_URL,
+            "policy_id": "POL-100245",
+            "diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
+            "estimated_cost": 85000,
+            "room_category": "Semi-Private",
+            "hospital_name": "Apollo Care Superspecialty Hospital",
+            "doctor_name": "Dr. Rajesh K. Mehta",
+            "use_sample_document": True,
+            "page": stub_wrong_pol,
+        }
+        ACTIVE_HITL_SESSIONS["sess-receipt-viol"] = {
+            "session_id": "sess-receipt-viol",
+            "session_type": "tinyfish_browser_session",
+            "created_at_epoch": 9999999999.0,
+            "expires_at_epoch": 9999999999.0,
+            "portal_url": DEFAULT_PORTAL_URL,
+            "policy_id": "POL-100245",
+            "diagnosis": "Acute Cholecystitis / ICD-10 K81.0",
+            "estimated_cost": 85000,
+            "room_category": "Semi-Private",
+            "hospital_name": "Apollo Care Superspecialty Hospital",
+            "doctor_name": "Dr. Rajesh K. Mehta",
+            "use_sample_document": True,
+            "page": stub_receipt,
+        }
+        wrong_pol_res = resume_verification_session("sess-wrong-pol")
+        receipt_viol_res = resume_verification_session("sess-receipt-viol")
+        post_resume_guards_ok = (
+            wrong_pol_res.get("success") is False
+            and wrong_pol_res.get("run_status") == "FIELD_MISMATCH"
+            and receipt_viol_res.get("success") is False
+            and receipt_viol_res.get("run_status") == "SUBMISSION_VIOLATION"
+            and receipt_viol_res.get("submitted") is True
+        )
+        record(
+            "35. Post-Resume Safeguards: Rejects wrong policy ID (FIELD_MISMATCH) & receipt screen (SUBMISSION_VIOLATION)",
+            post_resume_guards_ok,
+            f"wrong_policy: {wrong_pol_res.get('run_status')} | receipt_screen: {receipt_viol_res.get('run_status')}",
         )
 
     print(f"Summary: {passed_tests}/{total_tests} checks passed (0 TinyFish credits used).")
